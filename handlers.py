@@ -982,6 +982,9 @@ async def process_edit_content(message: Message, state: FSMContext):
 @router.callback_query(F.data == "delete_hw")
 async def start_delete_hw(query: CallbackQuery, state: FSMContext):
     """Начало удаления - выбор даты"""
+    if query.from_user.id != ADMIN_ID:
+        await query.answer("❌ У вас нет доступа!", show_alert=True)
+        return
     await state.set_state(DeleteHomeworkStates.waiting_for_date)
     today = datetime.now()
     keyboard = create_month_calendar_keyboard(
@@ -1002,6 +1005,9 @@ async def start_delete_hw(query: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data.startswith("del_calendar_"), DeleteHomeworkStates.waiting_for_date)
 async def delete_calendar_month(query: CallbackQuery):
     """Переключение месяцев в календаре выбора даты для удаления ДЗ."""
+    if query.from_user.id != ADMIN_ID:
+        await query.answer("❌ У вас нет доступа!", show_alert=True)
+        return
     payload = query.data.replace("del_calendar_", "", 1)
     try:
         year_str, month_str = payload.split("_", 1)
@@ -1030,6 +1036,9 @@ async def delete_calendar_month(query: CallbackQuery):
 @router.callback_query(F.data.startswith("del_date_"), DeleteHomeworkStates.waiting_for_date)
 async def delete_select_date(query: CallbackQuery, state: FSMContext):
     """Выбор даты для удаления"""
+    if query.from_user.id != ADMIN_ID:
+        await query.answer("❌ У вас нет доступа!", show_alert=True)
+        return
     date = query.data.replace("del_date_", "")
     
     homework_dict = await db_call(db.get_homework_by_date, date)
@@ -1056,6 +1065,9 @@ async def delete_select_date(query: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data.startswith("del_subject_"), DeleteHomeworkStates.waiting_for_subject)
 async def delete_confirm(query: CallbackQuery, state: FSMContext):
     """Подтверждение удаления"""
+    if query.from_user.id != ADMIN_ID:
+        await query.answer("❌ У вас нет доступа!", show_alert=True)
+        return
     subject = query.data.replace("del_subject_", "")
     data = await state.get_data()
     date = data.get("date")
@@ -1095,6 +1107,9 @@ async def delete_back_to_subject(query: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data.startswith("confirm_del_"))
 async def confirm_delete(query: CallbackQuery, state: FSMContext):
     """Подтверждение удаления"""
+    if query.from_user.id != ADMIN_ID:
+        await query.answer("❌ У вас нет доступа!", show_alert=True)
+        return
     parts = query.data.replace("confirm_del_", "").rsplit("_", 1)
     date = parts[0]
     subject = parts[1]

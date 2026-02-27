@@ -1,0 +1,60 @@
+"""
+Конфигурационный файл бота v2.0
+Секреты загружаются из .env файла
+"""
+
+import os
+import sys
+
+from dotenv import load_dotenv
+
+# Загружаем переменные окружения из .env
+load_dotenv()
+
+# 🔑 Токен Telegram-бота (обязательный)
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+
+# 👑 User ID администратора (обязательный)
+ADMIN_ID_RAW = os.getenv("ADMIN_ID")
+
+# 🔐 Пароль для входа в админ-панель
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
+
+# 📁 Путь к базе данных SQLite
+DATABASE_PATH = os.getenv("DATABASE_PATH", "homework.db")
+
+# 🎓 Список всех предметов (не секрет)
+SUBJECTS = [
+    "Алгебра",
+    "Геометрия",
+    "Русский",
+    "Литература",
+    "Физика",
+    "Химия",
+    "История",
+    "Обществознание",
+    "Вероятность и статистика"
+]
+
+# 📅 Количество дней для выбора (не секрет)
+DAYS_TO_SHOW = 14
+
+# 🌐 Параметры подключения
+DEBUG_MODE = os.getenv("DEBUG_MODE", "True").lower() in ("1", "true", "yes", "on")
+
+# Валидация обязательных переменных
+if not BOT_TOKEN:
+    print("❌ Ошибка конфигурации: переменная BOT_TOKEN не задана в .env")
+    print("Создайте .env на основе .env.example и заполните BOT_TOKEN.")
+    sys.exit(1)
+
+if not ADMIN_ID_RAW:
+    print("❌ Ошибка конфигурации: переменная ADMIN_ID не задана в .env")
+    print("Создайте .env на основе .env.example и заполните ADMIN_ID.")
+    sys.exit(1)
+
+try:
+    ADMIN_ID = int(ADMIN_ID_RAW)
+except ValueError:
+    print("❌ Ошибка конфигурации: ADMIN_ID должен быть целым числом.")
+    sys.exit(1)

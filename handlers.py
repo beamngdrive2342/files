@@ -983,12 +983,45 @@ async def process_edit_content(message: Message, state: FSMContext):
 async def start_delete_hw(query: CallbackQuery, state: FSMContext):
     """Начало удаления - выбор даты"""
     await state.set_state(DeleteHomeworkStates.waiting_for_date)
-    
-    dates = get_dates_list()
-    keyboard = create_date_buttons(dates, "del_date_", "admin_panel")
+    today = datetime.now()
+    keyboard = create_month_calendar_keyboard(
+        today.year,
+        today.month,
+        back_callback="admin_panel",
+        date_callback_prefix="del_date_",
+        nav_callback_prefix="del_calendar_",
+    )
     
     await query.message.edit_text(
-        "📅 Выберите дату для удаления:",
+        "📅 Выберите дату в календаре:",
+        reply_markup=keyboard
+    )
+    await query.answer()
+
+
+@router.callback_query(F.data.startswith("del_calendar_"), DeleteHomeworkStates.waiting_for_date)
+async def delete_calendar_month(query: CallbackQuery):
+    """Переключение месяцев в календаре выбора даты для удаления ДЗ."""
+    payload = query.data.replace("del_calendar_", "", 1)
+    try:
+        year_str, month_str = payload.split("_", 1)
+        year = int(year_str)
+        month = int(month_str)
+        if month < 1 or month > 12:
+            raise ValueError("invalid month")
+    except Exception:
+        await query.answer("❌ Ошибка календаря", show_alert=True)
+        return
+
+    keyboard = create_month_calendar_keyboard(
+        year,
+        month,
+        back_callback="admin_panel",
+        date_callback_prefix="del_date_",
+        nav_callback_prefix="del_calendar_",
+    )
+    await query.message.edit_text(
+        "📅 Выберите дату в календаре:",
         reply_markup=keyboard
     )
     await query.answer()

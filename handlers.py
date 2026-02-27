@@ -1047,11 +1047,14 @@ async def delete_select_date(query: CallbackQuery, state: FSMContext):
         await query.answer(f"❌ На дату {format_date_with_weekday(date)} нет ДЗ", show_alert=True)
         return
     
-    await state.update_data(date=date)
+    subjects = list(homework_dict.keys())
+    await state.update_data(date=date, delete_subjects=subjects)
     await state.set_state(DeleteHomeworkStates.waiting_for_subject)
     
-    buttons = [[InlineKeyboardButton(text=f"🗑 {subject}", callback_data=f"del_subject_{subject}")] 
-               for subject in homework_dict.keys()]
+    buttons = [
+        [InlineKeyboardButton(text=f"🗑 {subject}", callback_data=f"del_subject_idx_{idx}")]
+        for idx, subject in enumerate(subjects)
+    ]
     buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data="delete_hw")])
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
     
@@ -1068,13 +1071,29 @@ async def delete_confirm(query: CallbackQuery, state: FSMContext):
     if query.from_user.id != ADMIN_ID:
         await query.answer("❌ У вас нет доступа!", show_alert=True)
         return
-    subject = query.data.replace("del_subject_", "")
     data = await state.get_data()
+    subject = None
+    callback_data = query.data or ""
+    if callback_data.startswith("del_subject_idx_"):
+        try:
+            idx = int(callback_data.replace("del_subject_idx_", "", 1))
+            subjects = data.get("delete_subjects", [])
+            if idx < 0 or idx >= len(subjects):
+                raise ValueError("invalid subject idx")
+            subject = subjects[idx]
+        except Exception:
+            await query.answer("❌ Ошибка выбора предмета", show_alert=True)
+            return
+    else:
+        # Совместимость со старыми кнопками
+        subject = callback_data.replace("del_subject_", "", 1)
+
     date = data.get("date")
+    await state.update_data(subject=subject)
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Да, удалить", callback_data=f"confirm_del_{date}_{subject}")],
-        [InlineKeyboardButton(text="◀️ Назад", callback_data=f"del_back_subject_{date}")],
+        [InlineKeyboardButton(text="✅ Да, удалить", callback_data="confirm_del")],
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="del_back_subject")],
     ])
     
     await query.message.edit_text(
@@ -1084,17 +1103,31 @@ async def delete_confirm(query: CallbackQuery, state: FSMContext):
     await query.answer()
 
 
-@router.callback_query(F.data.startswith("del_back_subject_"))
+@router.callback_query(F.data.startswith("del_back_subject"))
 async def delete_back_to_subject(query: CallbackQuery, state: FSMContext):
     """Назад к выбору предмета при удалении"""
     if query.from_user.id != ADMIN_ID:
         return
-    date = query.data.replace("del_back_subject_", "")
+    callback_data = query.data or ""
+    if callback_data == "del_back_subject":
+        date = ""
+    else:
+        date = callback_data.replace("del_back_subject_", "", 1)
+    if not date:
+        data = await state.get_data()
+        date = data.get("date")
+    if not date:
+        await query.answer("❌ Ошибка: дата не найдена", show_alert=True)
+        return
     await state.update_data(date=date)
     await state.set_state(DeleteHomeworkStates.waiting_for_subject)
     homework_dict = await db_call(db.get_homework_by_date, date)
-    buttons = [[InlineKeyboardButton(text=f"🗑 {subject}", callback_data=f"del_subject_{subject}")] 
-               for subject in homework_dict.keys()]
+    subjects = list(homework_dict.keys())
+    await state.update_data(delete_subjects=subjects)
+    buttons = [
+        [InlineKeyboardButton(text=f"🗑 {subject}", callback_data=f"del_subject_idx_{idx}")]
+        for idx, subject in enumerate(subjects)
+    ]
     buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data="delete_hw")])
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
     await query.message.edit_text(
@@ -1104,15 +1137,24 @@ async def delete_back_to_subject(query: CallbackQuery, state: FSMContext):
     await query.answer()
 
 
-@router.callback_query(F.data.startswith("confirm_del_"))
+@router.callback_query(F.data.startswith("confirm_del"))
 async def confirm_delete(query: CallbackQuery, state: FSMContext):
     """Подтверждение удаления"""
     if query.from_user.id != ADMIN_ID:
         await query.answer("❌ У вас нет доступа!", show_alert=True)
         return
-    parts = query.data.replace("confirm_del_", "").rsplit("_", 1)
-    date = parts[0]
-    subject = parts[1]
+    data = await state.get_data()
+    date = data.get("date")
+    subject = data.get("subject")
+
+    # Совместимость со старыми кнопками
+    if not date or not subject:
+        parts = query.data.replace("confirm_del_", "").rsplit("_", 1)
+        if len(parts) != 2:
+            await query.answer("❌ Ошибка удаления", show_alert=True)
+            return
+        date = parts[0]
+        subject = parts[1]
     
     if await db_call(db.delete_homework, date, subject):
         await query.message.edit_text(f"✅ ДЗ по {subject} на {format_date_with_weekday(date)} удалено!")

@@ -627,7 +627,8 @@ async def add_select_subject(query: CallbackQuery, state: FSMContext):
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✏️ Добавить текст", callback_data="add_text")],
-        [InlineKeyboardButton(text="📸 Добавить фото", callback_data="add_photo")],
+        [InlineKeyboardButton(text="📸 Добавить фото", callback_data="add_photo"),
+         InlineKeyboardButton(text="📋 Добавить PDF", callback_data="add_pdf")],
         [InlineKeyboardButton(text="✅ Завершить", callback_data="finish_add")],
         [InlineKeyboardButton(text="◀️ Назад", callback_data="add_back_subject")],
     ])
@@ -636,7 +637,7 @@ async def add_select_subject(query: CallbackQuery, state: FSMContext):
         f"📝 Добавление ДЗ:\n"
         f"Дата: {format_date_with_weekday(date)}\n"
         f"Предмет: {subject}\n\n"
-        f"Добавляйте текст и фото в любом порядке:",
+        f"Добавляйте текст, фото и PDF в любом порядке:",
         reply_markup=keyboard
     )
     await query.answer()
@@ -652,54 +653,89 @@ async def add_text_input(query: CallbackQuery, state: FSMContext):
 
 @router.message(AddHomeworkStates.waiting_for_content)
 async def process_add_content(message: Message, state: FSMContext):
-    """Обработка текста/фото при добавлении"""
+    """Обработка содержимого (текст/фото/PDF)"""
     data = await state.get_data()
-    
-    if data.get("waiting_for_text"):
-        # Добавляем текст
-        text_parts = data.get("text_parts", [])
-        text_parts.append(message.text)
-        
-        await state.update_data(text_parts=text_parts, waiting_for_text=False)
-        
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="✏️ Добавить еще текст", callback_data="add_text")],
-            [InlineKeyboardButton(text="📸 Добавить фото", callback_data="add_photo")],
-            [InlineKeyboardButton(text="✅ Завершить", callback_data="finish_add")],
-            [InlineKeyboardButton(text="◀️ Назад", callback_data="add_back_subject")],
-        ])
-        
-        await message.answer(
-            "✅ Текст добавлен!\n\n"
-            "Продолжайте добавлять содержимое:",
-            reply_markup=keyboard
-        )
-    elif message.photo:
-        # Это обработка фото
-        photo_id = message.photo[-1].file_id
-        photos = data.get("photos", [])
-        photos.append(photo_id)
-        
-        await state.update_data(photos=photos)
-        
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+    photos = data.get("photos", [])  # Здесь храним и фото, и PDF (с префиксом pdf:)
+
+    # Удаляем старое сообщение-запрос (чтобы чат не засорялся)
+    prompt_id = data.get("content_prompt_id")
+    if prompt_id:
+        try:
+            await message.bot.delete_message(message.chat.id, prompt_id)
+        except Exception:
+            pass
+
+    def _get_kb():
+        return InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="✏️ Добавить текст", callback_data="add_text")],
-            [InlineKeyboardButton(text="📸 Добавить еще фото", callback_data="add_photo")],
+            [InlineKeyboardButton(text="📸 Добавить фото", callback_data="add_photo"),
+             InlineKeyboardButton(text="📋 Добавить PDF", callback_data="add_pdf")],
             [InlineKeyboardButton(text="✅ Завершить", callback_data="finish_add")],
             [InlineKeyboardButton(text="◀️ Назад", callback_data="add_back_subject")],
         ])
-        
-        await message.answer(
-            f"✅ Фото добавлено! ({len(photos)} шт.)\n\n"
-            "Продолжайте добавлять содержимое:",
-            reply_markup=keyboard
-        )
+
+    if data.get("waiting_for_text"):
+        text_parts = data.get("text_parts", [])
+        text_parts.append(message.text or "")
+        await state.update_data(text_parts=text_parts, waiting_for_text=False)
+        await message.answer("✅ Текст добавлен!\nПродолжайте:", reply_markup=_get_kb())
+
+    elif message.photo:
+        photos.append(message.photo[-1].file_id)
+        await state.update_data(photos=photos)
+        await message.answer(f"✅ Фото добавлено!\nПродолжайте:", reply_markup=_get_kb())
+
+    elif message.document and message.document.mime_type == "application/pdf":
+        photos.append(f"pdf:{message.document.file_id}")
+        await state.update_data(photos=photos)
+        await message.answer(f"✅ PDF добавлен!\nПродолжайте:", reply_markup=_get_kb())
+    else:
+        await message.answer("⚠️ Неподдерживаемый формат. Используйте текст, фото или PDF.", reply_markup=_get_kb())
 
 
 @router.callback_query(F.data == "add_photo", AddHomeworkStates.waiting_for_content)
-async def add_photo_input(query: CallbackQuery):
+async def add_photo_input(query: CallbackQuery, state: FSMContext):
     """Запрос фото для ДЗ"""
-    await query.message.edit_text("📸 Отправьте фотографию задания (или несколько по одной):")
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_content_input")]
+    ])
+    msg = await query.message.edit_text("📸 Отправьте фотографию задания (или несколько по одной):", reply_markup=kb)
+    await state.update_data(content_prompt_id=msg.message_id)
+    await query.answer()
+
+
+@router.callback_query(F.data == "add_pdf", AddHomeworkStates.waiting_for_content)
+async def add_pdf_input(query: CallbackQuery, state: FSMContext):
+    """Запрос PDF для ДЗ"""
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_content_input")]
+    ])
+    msg = await query.message.edit_text("📋 Отправьте PDF-файл (или несколько по одному):", reply_markup=kb)
+    await state.update_data(content_prompt_id=msg.message_id)
+    await query.answer()
+
+
+@router.callback_query(F.data == "cancel_content_input", AddHomeworkStates.waiting_for_content)
+async def cancel_content_input(query: CallbackQuery, state: FSMContext):
+    """Отмена ввода фото/PDF/текста"""
+    data = await state.get_data()
+    date = data.get("date")
+    subject = data.get("subject")
+    
+    await state.update_data(waiting_for_text=False)
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✏️ Добавить текст", callback_data="add_text")],
+        [InlineKeyboardButton(text="📸 Добавить фото", callback_data="add_photo"),
+         InlineKeyboardButton(text="📋 Добавить PDF", callback_data="add_pdf")],
+        [InlineKeyboardButton(text="✅ Завершить", callback_data="finish_add")],
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="add_back_subject")],
+    ])
+    
+    await query.message.edit_text(
+        f"📝 Добавление ДЗ:\nДата: {date}\nПредмет: {subject}\n\nВыбирайте действие:",
+        reply_markup=keyboard
+    )
     await query.answer()
 
 
@@ -744,15 +780,14 @@ async def finish_add_hw(query: CallbackQuery, state: FSMContext):
         
         await query.message.edit_text(
             f"✅ ДЗ по предмету **{subject}** на **{format_date_with_weekday(date)}** успешно добавлено!\n\n"
-            f"🔔 Уведомления отправлены пользователям.\n"
             f"Что вы хотите сделать дальше?",
             reply_markup=keyboard
         )
-        # Сбрасываем состояние, так как данные для текущего предмета больше не нужны
+        # Сбрасываем состояние
         await state.clear()
         
-        # Отправляем уведомления
-        await send_notifications_to_users(query.bot, date, subject)
+        # Уведомления отключены по просьбе пользователя
+        # await send_notifications_to_users(query.bot, date, subject)
     else:
         await query.message.edit_text("❌ Ошибка при сохранении в базу данных!")
     

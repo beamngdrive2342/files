@@ -627,8 +627,7 @@ async def add_select_subject(query: CallbackQuery, state: FSMContext):
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✏️ Добавить текст", callback_data="add_text")],
-        [InlineKeyboardButton(text="📸 Добавить фото", callback_data="add_photo"),
-         InlineKeyboardButton(text="📋 Добавить PDF", callback_data="add_pdf")],
+        [InlineKeyboardButton(text="📸 Добавить фото", callback_data="add_photo")],
         [InlineKeyboardButton(text="✅ Завершить", callback_data="finish_add")],
         [InlineKeyboardButton(text="◀️ Назад", callback_data="add_back_subject")],
     ])
@@ -637,7 +636,7 @@ async def add_select_subject(query: CallbackQuery, state: FSMContext):
         f"📝 Добавление ДЗ:\n"
         f"Дата: {format_date_with_weekday(date)}\n"
         f"Предмет: {subject}\n\n"
-        f"Добавляйте текст, фото и PDF в любом порядке:",
+        f"Добавляйте текст и фото в любом порядке:",
         reply_markup=keyboard
     )
     await query.answer()
@@ -653,64 +652,54 @@ async def add_text_input(query: CallbackQuery, state: FSMContext):
 
 @router.message(AddHomeworkStates.waiting_for_content)
 async def process_add_content(message: Message, state: FSMContext):
-    """Обработка текста/фото/PDF при добавлении"""
+    """Обработка текста/фото при добавлении"""
     data = await state.get_data()
-    photos = data.get("photos", [])
-
-    # Хелпер: основная клавиатура после добавления любого контента
-    def _content_keyboard():
-        n_photos = sum(1 for p in photos if not p.startswith("pdf:"))
-        n_pdfs = sum(1 for p in photos if p.startswith("pdf:"))
-        label_photo = f"📸 Еще фото ({n_photos})»" if n_photos else "📸 Добавить фото"
-        label_pdf = f"📋 Еще PDF ({n_pdfs})»" if n_pdfs else "📋 Добавить PDF"
-        return InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="✏️ Добавить текст", callback_data="add_text")],
-            [InlineKeyboardButton(text=label_photo, callback_data="add_photo"),
-             InlineKeyboardButton(text=label_pdf, callback_data="add_pdf")],
+    
+    if data.get("waiting_for_text"):
+        # Добавляем текст
+        text_parts = data.get("text_parts", [])
+        text_parts.append(message.text)
+        
+        await state.update_data(text_parts=text_parts, waiting_for_text=False)
+        
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✏️ Добавить еще текст", callback_data="add_text")],
+            [InlineKeyboardButton(text="📸 Добавить фото", callback_data="add_photo")],
             [InlineKeyboardButton(text="✅ Завершить", callback_data="finish_add")],
             [InlineKeyboardButton(text="◀️ Назад", callback_data="add_back_subject")],
         ])
-
-    if data.get("waiting_for_text"):
-        text_parts = data.get("text_parts", [])
-        text_parts.append(message.text or "")
-        await state.update_data(text_parts=text_parts, waiting_for_text=False)
-        await message.answer("✅ Текст добавлен!\n\nПродолжайте добавлять содержимое:", reply_markup=_content_keyboard())
-
+        
+        await message.answer(
+            "✅ Текст добавлен!\n\n"
+            "Продолжайте добавлять содержимое:",
+            reply_markup=keyboard
+        )
     elif message.photo:
+        # Это обработка фото
         photo_id = message.photo[-1].file_id
+        photos = data.get("photos", [])
         photos.append(photo_id)
+        
         await state.update_data(photos=photos)
-        n_photos = sum(1 for p in photos if not p.startswith("pdf:"))
+        
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✏️ Добавить текст", callback_data="add_text")],
+            [InlineKeyboardButton(text="📸 Добавить еще фото", callback_data="add_photo")],
+            [InlineKeyboardButton(text="✅ Завершить", callback_data="finish_add")],
+            [InlineKeyboardButton(text="◀️ Назад", callback_data="add_back_subject")],
+        ])
+        
         await message.answer(
-            f"✅ Фото добавлено! ({n_photos} шт.)\n\nПродолжайте добавлять содержимое:",
-            reply_markup=_content_keyboard()
+            f"✅ Фото добавлено! ({len(photos)} шт.)\n\n"
+            "Продолжайте добавлять содержимое:",
+            reply_markup=keyboard
         )
-
-    elif message.document and message.document.mime_type == "application/pdf":
-        pdf_id = message.document.file_id
-        photos.append(f"pdf:{pdf_id}")
-        await state.update_data(photos=photos)
-        n_pdfs = sum(1 for p in photos if p.startswith("pdf:"))
-        await message.answer(
-            f"✅ PDF добавлен! ({n_pdfs} шт.)\n\nПродолжайте добавлять содержимое:",
-            reply_markup=_content_keyboard()
-        )
-    else:
-        await message.answer("⚠️ Отправьте текст, фото или PDF-файл.")
 
 
 @router.callback_query(F.data == "add_photo", AddHomeworkStates.waiting_for_content)
 async def add_photo_input(query: CallbackQuery):
     """Запрос фото для ДЗ"""
     await query.message.edit_text("📸 Отправьте фотографию задания (или несколько по одной):")
-    await query.answer()
-
-
-@router.callback_query(F.data == "add_pdf", AddHomeworkStates.waiting_for_content)
-async def add_pdf_input(query: CallbackQuery):
-    """Запрос PDF для ДЗ"""
-    await query.message.edit_text("📋 Отправьте PDF-файл (или несколько по одному):")
     await query.answer()
 
 
@@ -739,51 +728,29 @@ async def finish_add_hw(query: CallbackQuery, state: FSMContext):
     subject = data.get("subject")
     text_parts = data.get("text_parts", [])
     photos = data.get("photos", [])
-
+    
     if not text_parts:
         await query.answer("❌ Добавьте хотя бы текст!", show_alert=True)
         return
-
+    
     full_text = "\n\n".join(text_parts)
-    n_photos = sum(1 for p in photos if not p.startswith("pdf:"))
-    n_pdfs = sum(1 for p in photos if p.startswith("pdf:"))
-
+    
     if await db_call(db.add_homework, date, subject, full_text, photos):
-        # Показываем выбор: добавить ещё или выйти
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="➕ Добавить ещё ДЗ", callback_data=f"add_more_hw_{date}")],
-            [InlineKeyboardButton(text="📊 В админ панель", callback_data="admin_panel")],
-        ])
         await query.message.edit_text(
             f"✅ ДЗ успешно добавлено!\n\n"
             f"📅 Дата: {format_date_with_weekday(date)}\n"
             f"📚 Предмет: {subject}\n"
-            f"📸 Фото: {n_photos} шт.  📋 PDF: {n_pdfs} шт.\n\n"
-            f"🔔 Уведомления отправляются всем пользователям!\n"
-            f"Что дальше?",
-            reply_markup=keyboard
+            f"📝 Текст: добавлено\n"
+            f"📸 Фото: {len(photos)} шт.\n\n"
+            f"🔔 Уведомления отправлены всем пользователям!"
         )
         await state.clear()
+        
+        # Отправляем уведомления всем пользователям
         await send_notifications_to_users(query.bot, date, subject)
     else:
         await query.message.edit_text("❌ Ошибка при добавлении!")
-
-    await query.answer()
-
-
-@router.callback_query(F.data.startswith("add_more_hw_"))
-async def add_more_hw(query: CallbackQuery, state: FSMContext):
-    """Добавить ещё одно ДЗ на ту же дату"""
-    if query.from_user.id != ADMIN_ID:
-        return
-    date = query.data.replace("add_more_hw_", "")
-    await state.update_data(date=date)
-    await state.set_state(AddHomeworkStates.waiting_for_subject)
-    keyboard = create_subject_buttons("add_subject_", "admin_panel")
-    await query.message.edit_text(
-        f"📚 Выберите предмет для даты {format_date_with_weekday(date)}:",
-        reply_markup=keyboard
-    )
+    
     await query.answer()
 
 
@@ -1298,10 +1265,6 @@ async def display_homework_for_date(query: CallbackQuery, state: FSMContext, dat
     all_message_ids = []
 
     for subject, (text, photos) in homework_dict.items():
-        # Разделяем фото и PDF
-        photo_ids = [p for p in photos if not p.startswith("pdf:")]
-        pdf_ids = [p[4:] for p in photos if p.startswith("pdf:")]
-
         homework_text = (
             f"📚 {subject}\n"
             f"📅 {formatted_date}\n\n"
@@ -1317,41 +1280,33 @@ async def display_homework_for_date(query: CallbackQuery, state: FSMContext, dat
                 [InlineKeyboardButton(text="🔎 Найти решение", callback_data="find_solution_geometry")],
             ])
 
-        if photo_ids:
+        if photos:
+            # Если есть фото, отправляем первое фото с текстом
             try:
                 first_message = await query.message.answer_photo(
-                    photo=photo_ids[0],
-                    caption=homework_text[:1024],
-                    reply_markup=reply_markup if not pdf_ids else None
+                    photo=photos[0],
+                    caption=homework_text[:1024],  # Ограничение Telegram для caption
+                    reply_markup=reply_markup
                 )
                 all_message_ids.append(first_message.message_id)
-                for pid in photo_ids[1:]:
+                
+                # Отправляем остальные фото отдельно
+                for photo_id in photos[1:]:
                     try:
-                        extra = await query.message.answer_photo(photo=pid)
-                        all_message_ids.append(extra.message_id)
+                        extra_message = await query.message.answer_photo(photo=photo_id)
+                        all_message_ids.append(extra_message.message_id)
                     except Exception as e:
-                        print(f"❌ Ошибка фото: {e}")
+                        print(f"❌ Ошибка при отправке фото: {e}")
             except Exception as e:
-                print(f"❌ Ошибка фото: {e}")
+                # Если не удалось отправить фото, отправляем текст
+                print(f"❌ Ошибка при отправке фото: {e}")
                 sent = await query.message.answer(homework_text)
                 all_message_ids.append(sent.message_id)
         else:
-            sent = await query.message.answer(homework_text, reply_markup=reply_markup if not pdf_ids else None)
+            # Если фото нет, отправляем только текст
+            sent = await query.message.answer(homework_text, reply_markup=reply_markup)
             all_message_ids.append(sent.message_id)
-
-        # Отправляем PDF
-        for i, pdf_id in enumerate(pdf_ids):
-            try:
-                is_last = (i == len(pdf_ids) - 1)
-                sent_pdf = await query.message.answer_document(
-                    document=pdf_id,
-                    caption=f"📋 PDF к заданию" if i == 0 else None,
-                    reply_markup=reply_markup if is_last else None
-                )
-                all_message_ids.append(sent_pdf.message_id)
-            except Exception as e:
-                print(f"❌ Ошибка PDF: {e}")
-
+    
     await state.update_data(last_homework_message_ids=all_message_ids)
     await query.answer()
 
@@ -1393,11 +1348,7 @@ async def view_homework(query: CallbackQuery, state: FSMContext):
         return
     
     text, photos = homework
-
-    # Разделяем фото и PDF
-    photo_ids = [p for p in photos if not p.startswith("pdf:")]
-    pdf_ids = [p[4:] for p in photos if p.startswith("pdf:")]
-
+    
     buttons = []
     if subject == "Алгебра":
         buttons.append([InlineKeyboardButton(text="🔎 Найти решение", callback_data="find_solution_algebra")])
@@ -1405,34 +1356,26 @@ async def view_homework(query: CallbackQuery, state: FSMContext):
         buttons.append([InlineKeyboardButton(text="🔎 Найти решение", callback_data="find_solution_geometry")])
     buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data=f"view_date_{date}")])
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
-
+    
     await query.message.edit_text(
         f"📚 {subject}\n"
         f"📅 {format_date_with_weekday(date, mark_today=True)}\n\n"
         f"📝 {text}",
         reply_markup=keyboard
     )
+    
+    photo_message_ids = []
 
-    media_message_ids = []
+    if photos:
+        for photo_id in photos:
+            try:
+                sent_message = await query.message.answer_photo(photo_id)
+                photo_message_ids.append(sent_message.message_id)
+            except Exception as e:
+                print(f"❌ Ошибка при отправке фото: {e}")
 
-    for pid in photo_ids:
-        try:
-            sent_message = await query.message.answer_photo(pid)
-            media_message_ids.append(sent_message.message_id)
-        except Exception as e:
-            print(f"❌ Ошибка при отправке фото: {e}")
-
-    for i, pdf_id in enumerate(pdf_ids):
-        try:
-            sent_pdf = await query.message.answer_document(
-                document=pdf_id,
-                caption="📋 PDF к заданию" if i == 0 else None
-            )
-            media_message_ids.append(sent_pdf.message_id)
-        except Exception as e:
-            print(f"❌ Ошибка PDF: {e}")
-
-    await state.update_data(last_homework_message_ids=media_message_ids)
+    await state.update_data(last_homework_message_ids=photo_message_ids)
+    
     await query.answer()
 
 @router.callback_query(F.data == "find_solution_algebra")

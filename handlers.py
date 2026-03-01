@@ -282,21 +282,22 @@ def create_password_keypad(entered_digits: str = "") -> InlineKeyboardMarkup:
 
 
 async def clear_last_homework_photos(query: CallbackQuery, state: FSMContext):
-    """Удаляет ранее отправленные фото ДЗ из чата (если есть)."""
+    """Удаляет ранее отправленные сообщения ДЗ из чата (фото и текстовые задания)."""
     data = await state.get_data()
-    photo_message_ids = data.get("last_homework_photo_ids", [])
+    # Поддержка обоих ключей для обратной совместимости
+    message_ids = data.get("last_homework_message_ids", []) or data.get("last_homework_photo_ids", [])
 
-    if not photo_message_ids:
+    if not message_ids:
         return
 
     await delete_messages_batch(
         bot=query.bot,
         chat_id=query.message.chat.id,
-        message_ids=photo_message_ids,
-        error_prefix="Не удалось удалить фото сообщение"
+        message_ids=message_ids,
+        error_prefix="Не удалось удалить сообщение ДЗ"
     )
 
-    await state.update_data(last_homework_photo_ids=[])
+    await state.update_data(last_homework_message_ids=[], last_homework_photo_ids=[])
 
 
 async def clear_last_solution_messages(query: CallbackQuery, state: FSMContext):
@@ -1296,7 +1297,8 @@ async def display_homework_for_date(query: CallbackQuery, state: FSMContext, dat
     )
     
     # Отправляем каждое задание отдельным сообщением
-    photo_message_ids = []
+    # Сохраняем ID всех отправленных сообщений (и фото, и текст) для последующего удаления
+    all_message_ids = []
 
     for subject, (text, photos) in homework_dict.items():
         homework_text = (
@@ -1322,24 +1324,26 @@ async def display_homework_for_date(query: CallbackQuery, state: FSMContext, dat
                     caption=homework_text[:1024],  # Ограничение Telegram для caption
                     reply_markup=reply_markup
                 )
-                photo_message_ids.append(first_message.message_id)
+                all_message_ids.append(first_message.message_id)
                 
                 # Отправляем остальные фото отдельно
                 for photo_id in photos[1:]:
                     try:
                         extra_message = await query.message.answer_photo(photo=photo_id)
-                        photo_message_ids.append(extra_message.message_id)
+                        all_message_ids.append(extra_message.message_id)
                     except Exception as e:
                         print(f"❌ Ошибка при отправке фото: {e}")
             except Exception as e:
                 # Если не удалось отправить фото, отправляем текст
                 print(f"❌ Ошибка при отправке фото: {e}")
-                await query.message.answer(homework_text)
+                sent = await query.message.answer(homework_text)
+                all_message_ids.append(sent.message_id)
         else:
             # Если фото нет, отправляем только текст
-            await query.message.answer(homework_text, reply_markup=reply_markup)
+            sent = await query.message.answer(homework_text, reply_markup=reply_markup)
+            all_message_ids.append(sent.message_id)
     
-    await state.update_data(last_homework_photo_ids=photo_message_ids)
+    await state.update_data(last_homework_message_ids=all_message_ids)
     await query.answer()
 
 
@@ -1406,7 +1410,7 @@ async def view_homework(query: CallbackQuery, state: FSMContext):
             except Exception as e:
                 print(f"❌ Ошибка при отправке фото: {e}")
 
-    await state.update_data(last_homework_photo_ids=photo_message_ids)
+    await state.update_data(last_homework_message_ids=photo_message_ids)
     
     await query.answer()
 

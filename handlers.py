@@ -241,44 +241,7 @@ def create_month_calendar_keyboard(
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-def create_password_keypad(entered_digits: str = "") -> InlineKeyboardMarkup:
-    """
-    Создание клавиатуры для ввода пароля (цифровая клавиатура)
-    
-    Args:
-        entered_digits: Уже введенные цифры пароля
-        
-    Returns:
-        InlineKeyboardMarkup с цифровой клавиатурой
-    """
-    # Цифровая клавиатура 3x3 + 0 внизу
-    buttons = [
-        [
-            InlineKeyboardButton(text="1", callback_data="pwd_1"),
-            InlineKeyboardButton(text="2", callback_data="pwd_2"),
-            InlineKeyboardButton(text="3", callback_data="pwd_3"),
-        ],
-        [
-            InlineKeyboardButton(text="4", callback_data="pwd_4"),
-            InlineKeyboardButton(text="5", callback_data="pwd_5"),
-            InlineKeyboardButton(text="6", callback_data="pwd_6"),
-        ],
-        [
-            InlineKeyboardButton(text="7", callback_data="pwd_7"),
-            InlineKeyboardButton(text="8", callback_data="pwd_8"),
-            InlineKeyboardButton(text="9", callback_data="pwd_9"),
-        ],
-        [
-            InlineKeyboardButton(text="⌫ Удалить", callback_data="pwd_backspace"),
-            InlineKeyboardButton(text="0", callback_data="pwd_0"),
-            InlineKeyboardButton(text="🗑 Очистить", callback_data="pwd_clear"),
-        ],
-        [
-            InlineKeyboardButton(text="✅ Подтвердить", callback_data="pwd_confirm"),
-            InlineKeyboardButton(text="❌ Отмена", callback_data="pwd_cancel"),
-        ],
-    ]
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
+# create_password_keypad удалена — теперь пароль вводится обычным текстом
 
 
 async def clear_last_homework_photos(query: CallbackQuery, state: FSMContext):
@@ -466,92 +429,72 @@ async def admin_auth(query: CallbackQuery, state: FSMContext):
         return
 
     await state.set_state(AdminAuthStates.waiting_for_password)
-    await state.update_data(entered_password="")
-    
-    keyboard = create_password_keypad()
+
+    cancel_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="pwd_cancel")],
+    ])
+
     await query.message.edit_text(
-        "🔐 Введите пароль для входа в админ панель:\n\n"
-        "Пароль: ••••",
+        "🔐 Введите пароль администратора:",
+        reply_markup=cancel_keyboard
+    )
+    await query.answer()
+
+
+@router.callback_query(F.data == "pwd_cancel", AdminAuthStates.waiting_for_password)
+async def cancel_password_input(query: CallbackQuery, state: FSMContext):
+    """Отмена ввода пароля"""
+    if query.from_user.id != ADMIN_ID:
+        return
+    await state.clear()
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="👑 Админ панель", callback_data="admin_auth")],
+        [InlineKeyboardButton(text="📚 Мои ДЗ", callback_data="student_view")],
+    ])
+    await query.message.edit_text(
+        "👋 Главное меню\n\nВыбери действие:",
         reply_markup=keyboard
     )
     await query.answer()
 
 
-@router.callback_query(F.data.startswith("pwd_"), AdminAuthStates.waiting_for_password)
-async def handle_password_input(query: CallbackQuery, state: FSMContext):
-    """Обработка ввода пароля через кнопки"""
-    if query.from_user.id != ADMIN_ID:
-        await query.answer("❌ У вас нет доступа!", show_alert=True)
+@router.message(AdminAuthStates.waiting_for_password)
+async def handle_password_input(message: Message, state: FSMContext):
+    """Обработка ввода пароля текстом"""
+    if message.from_user.id != ADMIN_ID:
         return
-    
-    data = await state.get_data()
-    entered_password = data.get("entered_password", "")
-    action = query.data.replace("pwd_", "")
-    
-    if action == "backspace":
-        await query.answer()
-        # Удалить последний символ
-        entered_password = entered_password[:-1] if entered_password else ""
-    elif action == "clear":
-        await query.answer()
-        # Очистить весь пароль
-        entered_password = ""
-    elif action == "confirm":
-        # Проверить пароль
-        if entered_password == ADMIN_PASSWORD:
-            await query.answer("✅ Пароль верный!")
-            await state.clear()
-            
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="➕ Добавить ДЗ", callback_data="add_hw")],
-                [InlineKeyboardButton(text="✏️ Редактировать", callback_data="edit_hw")],
-                [InlineKeyboardButton(text="🗑 Удалить", callback_data="delete_hw")],
-                [InlineKeyboardButton(text="📋 Все ДЗ", callback_data="view_all_hw")],
-                [InlineKeyboardButton(text="◀️ Выход в меню", callback_data="back_to_menu")],
-            ])
-            
-            await query.message.edit_text(
-                "✅ Добро пожаловать, администратор!\n\n"
-                "Выберите действие:",
-                reply_markup=keyboard
-            )
-        else:
-            await query.answer("❌ Неправильный пароль!", show_alert=True)
-            # Сбрасываем пароль и показываем клавиатуру снова
-            entered_password = ""
-            await state.update_data(entered_password="")
-            keyboard = create_password_keypad()
-            await query.message.edit_text(
-                "🔐 Введите пароль для входа в админ панель:\n\n"
-                "Пароль: ••••\n\n"
-                "❌ Неправильный пароль! Попробуйте снова.",
-                reply_markup=keyboard
-            )
-        return
-    elif action == "cancel":
-        await query.answer()
-        # Отмена ввода пароля
+
+    entered = (message.text or "").strip()
+
+    # Немедленно удаляем сообщение с паролем из чата
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+    if entered == ADMIN_PASSWORD:
         await state.clear()
-        await query.message.edit_text("❌ Ввод пароля отменен.")
-        return
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="➕ Добавить ДЗ", callback_data="add_hw")],
+            [InlineKeyboardButton(text="✏️ Редактировать", callback_data="edit_hw")],
+            [InlineKeyboardButton(text="🗑 Удалить", callback_data="delete_hw")],
+            [InlineKeyboardButton(text="📋 Все ДЗ", callback_data="view_all_hw")],
+            [InlineKeyboardButton(text="◀️ Выход в меню", callback_data="back_to_menu")],
+        ])
+        await message.answer(
+            "✅ Добро пожаловать, администратор!\n\n"
+            "Выберите действие:",
+            reply_markup=keyboard
+        )
     else:
-        await query.answer()
-        # Добавить цифру (0-9)
-        if len(entered_password) < 10:  # Ограничение на длину пароля
-            entered_password += action
-    
-    # Обновляем состояние
-    await state.update_data(entered_password=entered_password)
-    
-    # Показываем маскированный пароль
-    masked_password = "•" * len(entered_password) if entered_password else "••••"
-    display_text = (
-        f"🔐 Введите пароль для входа в админ панель:\n\n"
-        f"Пароль: {masked_password}"
-    )
-    
-    keyboard = create_password_keypad(entered_password)
-    await query.message.edit_text(display_text, reply_markup=keyboard)
+        cancel_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="❌ Отмена", callback_data="pwd_cancel")],
+        ])
+        await message.answer(
+            "🔐 Введите пароль администратора:\n\n"
+            "❌ Неверный пароль, попробуйте ещё раз:",
+            reply_markup=cancel_keyboard
+        )
 
 
 # ==================== АДМИН ПАНЕЛЬ ====================

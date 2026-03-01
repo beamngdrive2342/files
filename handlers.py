@@ -438,6 +438,11 @@ async def admin_auth(query: CallbackQuery, state: FSMContext):
         "🔐 Введите пароль администратора:",
         reply_markup=cancel_keyboard
     )
+    # Сохраняем ID сообщения-приглашения, чтобы удалить его после ввода пароля
+    await state.update_data(
+        pwd_prompt_message_id=query.message.message_id,
+        pwd_prompt_chat_id=query.message.chat.id
+    )
     await query.answer()
 
 
@@ -465,12 +470,22 @@ async def handle_password_input(message: Message, state: FSMContext):
         return
 
     entered = (message.text or "").strip()
+    data = await state.get_data()
 
-    # Немедленно удаляем сообщение с паролем из чата
+    # Удаляем сообщение пользователя с паролем
     try:
         await message.delete()
     except Exception:
         pass
+
+    # Удаляем сообщение-приглашение «Введите пароль»
+    prompt_message_id = data.get("pwd_prompt_message_id")
+    prompt_chat_id = data.get("pwd_prompt_chat_id")
+    if prompt_message_id and prompt_chat_id:
+        try:
+            await message.bot.delete_message(chat_id=prompt_chat_id, message_id=prompt_message_id)
+        except Exception:
+            pass
 
     if entered == ADMIN_PASSWORD:
         await state.clear()
@@ -487,14 +502,20 @@ async def handle_password_input(message: Message, state: FSMContext):
             reply_markup=keyboard
         )
     else:
+        # Неверный пароль — отправляем новое приглашение и сохраняем его ID
         cancel_keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="❌ Отмена", callback_data="pwd_cancel")],
         ])
-        await message.answer(
+        new_prompt = await message.answer(
             "🔐 Введите пароль администратора:\n\n"
             "❌ Неверный пароль, попробуйте ещё раз:",
             reply_markup=cancel_keyboard
         )
+        await state.update_data(
+            pwd_prompt_message_id=new_prompt.message_id,
+            pwd_prompt_chat_id=new_prompt.chat.id
+        )
+
 
 
 # ==================== АДМИН ПАНЕЛЬ ====================

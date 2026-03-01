@@ -736,21 +736,47 @@ async def finish_add_hw(query: CallbackQuery, state: FSMContext):
     full_text = "\n\n".join(text_parts)
     
     if await db_call(db.add_homework, date, subject, full_text, photos):
+        # Создаем клавиатуру с выбором действий
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="➕ Добавить еще (на ту же дату)", callback_data=f"add_more_hw_{date}")],
+            [InlineKeyboardButton(text="📊 В админ панель", callback_data="admin_panel")],
+        ])
+        
         await query.message.edit_text(
-            f"✅ ДЗ успешно добавлено!\n\n"
-            f"📅 Дата: {format_date_with_weekday(date)}\n"
-            f"📚 Предмет: {subject}\n"
-            f"📝 Текст: добавлено\n"
-            f"📸 Фото: {len(photos)} шт.\n\n"
-            f"🔔 Уведомления отправлены всем пользователям!"
+            f"✅ ДЗ по предмету **{subject}** на **{format_date_with_weekday(date)}** успешно добавлено!\n\n"
+            f"🔔 Уведомления отправлены пользователям.\n"
+            f"Что вы хотите сделать дальше?",
+            reply_markup=keyboard
         )
+        # Сбрасываем состояние, так как данные для текущего предмета больше не нужны
         await state.clear()
         
-        # Отправляем уведомления всем пользователям
+        # Отправляем уведомления
         await send_notifications_to_users(query.bot, date, subject)
     else:
-        await query.message.edit_text("❌ Ошибка при добавлении!")
+        await query.message.edit_text("❌ Ошибка при сохранении в базу данных!")
     
+    await query.answer()
+
+
+@router.callback_query(F.data.startswith("add_more_hw_"))
+async def add_more_hw(query: CallbackQuery, state: FSMContext):
+    """Быстрый переход к добавлению еще одного предмета на ту же дату"""
+    if query.from_user.id != ADMIN_ID:
+        return
+        
+    date = query.data.replace("add_more_hw_", "")
+    
+    # Сразу переходим к выбору предмета для этой даты
+    await state.update_data(date=date)
+    await state.set_state(AddHomeworkStates.waiting_for_subject)
+    
+    keyboard = create_subject_buttons("add_subject_", "admin_panel")
+    
+    await query.message.edit_text(
+        f"📚 Выберите следующий предмет для даты {format_date_with_weekday(date)}:",
+        reply_markup=keyboard
+    )
     await query.answer()
 
 

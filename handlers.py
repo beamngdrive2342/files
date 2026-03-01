@@ -241,7 +241,7 @@ def create_month_calendar_keyboard(
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-# create_password_keypad удалена — теперь пароль вводится обычным текстом
+
 
 
 async def clear_last_homework_photos(query: CallbackQuery, state: FSMContext):
@@ -594,7 +594,7 @@ async def add_select_subject(query: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     date = data.get("date")
     
-    if db.homework_exists(date, subject):
+    if await db_call(db.homework_exists, date, subject):
         await query.answer(
             f"⚠️ ДЗ по {subject} на {format_date_with_weekday(date)} уже существует!",
             show_alert=True
@@ -791,7 +791,7 @@ async def edit_select_subject(query: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     date = data.get("date")
     
-    homework = db.get_homework(date, subject)
+    homework = await db_call(db.get_homework, date, subject)
     if not homework:
         await query.answer("❌ ДЗ не найдено", show_alert=True)
         return
@@ -1153,7 +1153,7 @@ async def student_view(query: CallbackQuery, state: FSMContext):
         print(f"❌ Не удалось удалить сообщение меню: {e}")
 
     await query.message.answer(
-        "📚 Просмотр домашних задиний для 10А класса\n\n"
+        "📚 Просмотр домашних заданий для 10А класса\n\n"
         "Выберите действие:",
         reply_markup=keyboard
     )

@@ -6,6 +6,9 @@
 import sqlite3
 import json
 from typing import List, Optional, Tuple, Dict
+import logging
+
+logger = logging.getLogger("homework_db")
 from datetime import datetime, timedelta, date
 from threading import Lock
 from time import monotonic
@@ -20,16 +23,16 @@ class Database:
         self.db_path = db_path
         self._last_purge_date: Optional[date] = None
         self._cache_lock = Lock()
-        self._homework_by_date_cache: Dict[str, Tuple[float, Dict[str, Tuple[str, List[str]]]]] = {}
+        self._homework_by_date_cache: Dict[str, Tuple[float, Dict[str, Tuple[str, List[str], bool]]]] = {}
         self._homework_by_date_ttl_sec = 45
         self.init_db()
 
     @staticmethod
     def _clone_homework_dict(
-        homework_dict: Dict[str, Tuple[str, List[str]]]
-    ) -> Dict[str, Tuple[str, List[str]]]:
+        homework_dict: Dict[str, Tuple[str, List[str], bool]]
+    ) -> Dict[str, Tuple[str, List[str], bool]]:
         """Клонирует структуру ДЗ, чтобы внешний код не изменял кэш напрямую."""
-        return {subject: (text, list(photos)) for subject, (text, photos) in homework_dict.items()}
+        return {subject: (text, list(photos), is_tb) for subject, (text, photos, is_tb) in homework_dict.items()}
 
     def _invalidate_homework_cache(self, target_date: Optional[str] = None):
         """Инвалидация кэша ДЗ по дате (точечно или полностью)."""
@@ -39,7 +42,7 @@ class Database:
             else:
                 self._homework_by_date_cache.pop(target_date, None)
 
-    def _get_cached_homework_by_date(self, target_date: str) -> Optional[Dict[str, Tuple[str, List[str]]]]:
+    def _get_cached_homework_by_date(self, target_date: str) -> Optional[Dict[str, Tuple[str, List[str], bool]]]:
         """Получение ДЗ по дате из кэша с проверкой TTL."""
         now = monotonic()
         with self._cache_lock:
@@ -52,7 +55,7 @@ class Database:
                 return None
             return self._clone_homework_dict(payload)
 
-    def _set_cached_homework_by_date(self, target_date: str, payload: Dict[str, Tuple[str, List[str]]]):
+    def _set_cached_homework_by_date(self, target_date: str, payload: Dict[str, Tuple[str, List[str], bool]]):
         """Сохранение ДЗ по дате в кэш."""
         expires_at = monotonic() + self._homework_by_date_ttl_sec
         with self._cache_lock:
@@ -80,11 +83,20 @@ class Database:
                 subject TEXT NOT NULL,
                 text TEXT NOT NULL,
                 photo_ids TEXT,
+                is_textbook INTEGER NOT NULL DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(date, subject)
             )
         """)
+
+        # Миграция: добавляем колонку is_textbook если её нет
+        try:
+            cursor.execute("SELECT is_textbook FROM homework LIMIT 1")
+        except sqlite3.OperationalError:
+            logger.info("🔄 Миграция БД: добавляю колонку is_textbook...")
+            cursor.execute("ALTER TABLE homework ADD COLUMN is_textbook INTEGER NOT NULL DEFAULT 0")
+            logger.info("✅ Колонка is_textbook добавлена.")
 
         # Таблица для отслеживания пользователей для уведомлений
         cursor.execute("""
@@ -117,7 +129,7 @@ class Database:
         self._last_purge_date = today
         return removed
 
-    def add_homework(self, date: str, subject: str, text: str, photo_ids: List[str] = None) -> bool:
+    def add_homework(self, date: str, subject: str, text: str, photo_ids: List[str] = None, is_textbook: bool = False) -> bool:
         """
         Добавление нового задания
         
@@ -126,6 +138,7 @@ class Database:
             subject: Предмет (Алгебра, Геометрия и т.д.)
             text: Текст задания
             photo_ids: Список ID фотографий
+            is_textbook: Задание из учебника (True = ученики увидят кнопку «Найти решение»)
             
         Returns:
             True если успешно, False если ошибка
@@ -137,9 +150,9 @@ class Database:
             photo_json = json.dumps(photo_ids) if photo_ids else None
 
             cursor.execute("""
-                INSERT INTO homework (date, subject, text, photo_ids)
-                VALUES (?, ?, ?, ?)
-            """, (date, subject, text, photo_json))
+                INSERT INTO homework (date, subject, text, photo_ids, is_textbook)
+                VALUES (?, ?, ?, ?, ?)
+            """, (date, subject, text, photo_json, 1 if is_textbook else 0))
 
             conn.commit()
             conn.close()
@@ -170,7 +183,7 @@ class Database:
             if not homework:
                 return False
 
-            text, photos = homework
+            text, photos, _ = homework
             photos.append(photo_id)
 
             return self.update_homework(date, subject, text, photos)
@@ -196,7 +209,7 @@ class Database:
             if not homework:
                 return False
 
-            text, photos = homework
+            text, photos, _ = homework
             combined_text = f"{text}\n\n{new_text}"
 
             return self.update_homework(date, subject, combined_text, photos)
@@ -205,7 +218,7 @@ class Database:
             print(f"❌ Ошибка при добавлении текста: {e}")
             return False
 
-    def get_homework(self, date: str, subject: str) -> Optional[Tuple[str, List[str]]]:
+    def get_homework(self, date: str, subject: str) -> Optional[Tuple[str, List[str], bool]]:
         """
         Получение задания по дате и предмету
         
@@ -214,7 +227,7 @@ class Database:
             subject: Предмет
             
         Returns:
-            Кортеж (текст, список ID фото) или None если не найдено
+            Кортеж (текст, список ID фото, is_textbook) или None если не найдено
         """
         try:
             cached_by_date = self._get_cached_homework_by_date(date)
@@ -222,14 +235,14 @@ class Database:
                 cached_hw = cached_by_date.get(subject)
                 if not cached_hw:
                     return None
-                text, photos = cached_hw
-                return text, list(photos)
+                text, photos, is_tb = cached_hw
+                return text, list(photos), is_tb
 
             conn = self._connect()
             cursor = conn.cursor()
 
             cursor.execute("""
-                SELECT text, photo_ids FROM homework 
+                SELECT text, photo_ids, is_textbook FROM homework 
                 WHERE date = ? AND subject = ?
             """, (date, subject))
 
@@ -237,16 +250,16 @@ class Database:
             conn.close()
 
             if result:
-                text, photo_ids = result
+                text, photo_ids, is_tb = result
                 photos = json.loads(photo_ids) if photo_ids else []
-                return text, photos
+                return text, photos, bool(is_tb)
             return None
 
         except Exception as e:
             print(f"❌ Ошибка при получении: {e}")
             return None
 
-    def get_homework_by_date(self, date: str) -> Dict[str, Tuple[str, List[str]]]:
+    def get_homework_by_date(self, date: str) -> Dict[str, Tuple[str, List[str], bool]]:
         """
         Получение всех заданий на дату
         
@@ -254,7 +267,7 @@ class Database:
             date: Дата в формате ДД.МММ.ГГГГ
             
         Returns:
-            Словарь {предмет: (текст, фото)}
+            Словарь {предмет: (текст, фото, is_textbook)}
         """
         try:
             cached = self._get_cached_homework_by_date(date)
@@ -265,7 +278,7 @@ class Database:
             cursor = conn.cursor()
 
             cursor.execute("""
-                SELECT subject, text, photo_ids FROM homework 
+                SELECT subject, text, photo_ids, is_textbook FROM homework 
                 WHERE date = ?
                 ORDER BY subject
             """, (date,))
@@ -274,9 +287,9 @@ class Database:
             conn.close()
 
             homework_dict = {}
-            for subject, text, photo_ids in results:
+            for subject, text, photo_ids, is_tb in results:
                 photos = json.loads(photo_ids) if photo_ids else []
-                homework_dict[subject] = (text, photos)
+                homework_dict[subject] = (text, photos, bool(is_tb))
 
             self._set_cached_homework_by_date(date, homework_dict)
             return homework_dict
@@ -319,7 +332,7 @@ class Database:
             print(f"❌ Ошибка при получении по предмету: {e}")
             return {}
 
-    def update_homework(self, date: str, subject: str, text: str, photo_ids: List[str] = None) -> bool:
+    def update_homework(self, date: str, subject: str, text: str, photo_ids: List[str] = None, is_textbook: bool | None = None) -> bool:
         """
         Обновление задания
         
@@ -328,6 +341,7 @@ class Database:
             subject: Предмет
             text: Новый текст
             photo_ids: Новые фото
+            is_textbook: Обновить флаг «из учебника» (None = не менять)
             
         Returns:
             True если успешно
@@ -338,11 +352,18 @@ class Database:
 
             photo_json = json.dumps(photo_ids) if photo_ids else None
 
-            cursor.execute("""
-                UPDATE homework 
-                SET text = ?, photo_ids = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE date = ? AND subject = ?
-            """, (text, photo_json, date, subject))
+            if is_textbook is not None:
+                cursor.execute("""
+                    UPDATE homework 
+                    SET text = ?, photo_ids = ?, is_textbook = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE date = ? AND subject = ?
+                """, (text, photo_json, 1 if is_textbook else 0, date, subject))
+            else:
+                cursor.execute("""
+                    UPDATE homework 
+                    SET text = ?, photo_ids = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE date = ? AND subject = ?
+                """, (text, photo_json, date, subject))
 
             updated = cursor.rowcount > 0
             conn.commit()
@@ -389,19 +410,19 @@ class Database:
             print(f"❌ Ошибка при удалении: {e}")
             return False
 
-    def get_all_homework(self) -> List[Tuple[str, str, str, List[str]]]:
+    def get_all_homework(self) -> List[Tuple[str, str, str, List[str], bool]]:
         """
         Получение всех заданий
         
         Returns:
-            Список кортежей (дата, предмет, текст, фото)
+            Список кортежей (дата, предмет, текст, фото, is_textbook)
         """
         try:
             conn = self._connect()
             cursor = conn.cursor()
 
             cursor.execute("""
-                SELECT date, subject, text, photo_ids FROM homework 
+                SELECT date, subject, text, photo_ids, is_textbook FROM homework 
                 ORDER BY date DESC, subject
             """)
 
@@ -409,9 +430,9 @@ class Database:
             conn.close()
 
             homework_list = []
-            for date, subject, text, photo_ids in results:
+            for date, subject, text, photo_ids, is_tb in results:
                 photos = json.loads(photo_ids) if photo_ids else []
-                homework_list.append((date, subject, text, photos))
+                homework_list.append((date, subject, text, photos, bool(is_tb)))
 
             return homework_list
 

@@ -50,6 +50,33 @@ _solution_index_expires_at = 0.0
 _solution_index_lock = asyncio.Lock()
 
 
+async def safe_edit_or_answer(
+    message,
+    text: str,
+    reply_markup=None,
+    parse_mode=None,
+):
+    """
+    Пытается отредактировать сообщение (edit_text).
+    Если не удаётся — отправляет новое.
+    Возвращает итоговый Message.
+    """
+    try:
+        return await message.edit_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+    except TelegramBadRequest as e:
+        err = str(e).lower()
+        # Если сообщение нельзя редактировать (удалено, не изменено, медиа) — шлём новое
+        if any(kw in err for kw in (
+            "message is not modified",
+            "message to edit not found",
+            "message can't be edited",
+            "there is no text in the message",
+            "message_id_invalid",
+        )):
+            return await message.answer(text, reply_markup=reply_markup, parse_mode=parse_mode)
+        raise
+
+
 async def db_call(func: Callable[..., Any], *args, **kwargs) -> Any:
     """Выполняет синхронный вызов БД в отдельном потоке, не блокируя event loop."""
     return await asyncio.to_thread(func, *args, **kwargs)
@@ -1229,12 +1256,8 @@ async def student_view(query: CallbackQuery, state: FSMContext):
         [InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_menu")],
     ])
 
-    try:
-        await query.message.delete()
-    except Exception as e:
-        print(f"❌ Не удалось удалить сообщение меню: {e}")
-
-    await query.message.answer(
+    await safe_edit_or_answer(
+        query.message,
         "📚 Просмотр домашних заданий для 10А класса\n\n"
         "Выберите действие:",
         reply_markup=keyboard
@@ -1279,12 +1302,9 @@ async def view_calendar_month(query: CallbackQuery):
 
 async def display_homework_for_date(query: CallbackQuery, state: FSMContext, date: str, date_label: str):
     """
-    Отображение всех ДЗ на указанную дату
-    
-    Args:
-        query: CallbackQuery объект
-        date: Дата в формате ДД.ММ.ГГГГ
-        date_label: Текстовая метка даты (например, "Сегодня" или "Завтра")
+    Отображение всех ДЗ на указанную дату.
+    Первый предмет (текстовый) встраивается в текущее сообщение через edit_text,
+    остальные — отправляются отдельно (фото нельзя вставить через edit_text).
     """
     await clear_last_solution_messages(query, state)
     await clear_last_homework_photos(query, state)
@@ -1299,74 +1319,83 @@ async def display_homework_for_date(query: CallbackQuery, state: FSMContext, dat
             no_hw_text = f"📭 Нет заданий на {date_label.lower()} ({formatted_date})"
         else:
             no_hw_text = f"📭 Нет заданий на {formatted_date}"
-        await query.message.edit_text(
+        await safe_edit_or_answer(
+            query.message,
             no_hw_text,
             reply_markup=keyboard
         )
         await query.answer()
         return
     
-    # Отправляем первое сообщение с меню
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="◀️ Назад", callback_data="student_view")],
-    ])
-    
+    # ---- Формируем общий текст со всеми предметами ----
     if date_label in ("Сегодня", "Завтра"):
         title_text = f"📚 Домашние задания на {date_label.lower()} ({formatted_date}):\n\n"
     else:
         title_text = f"📚 Домашние задания на {formatted_date}:\n\n"
 
-    await query.message.edit_text(
-        f"{title_text}Найдено заданий: {len(homework_dict)}",
-        reply_markup=keyboard
-    )
-    
-    # Отправляем каждое задание отдельным сообщением
-    # Сохраняем ID всех отправленных сообщений (и фото, и текст) для последующего удаления
-    all_message_ids = []
+    combined_text = title_text
+    has_any_photos = False
+    all_photos_to_send: list[tuple[str, list[str], str | None]] = []  # (subject, photo_ids, reply_markup_cb)
 
     for subject, (text, photos) in homework_dict.items():
         homework_text = (
             f"📚 {subject}\n"
-            f"📅 {formatted_date}\n\n"
-            f"📝 Задание:\n{text}"
+            f"📝 {text}\n"
         )
-        reply_markup = None
-        if subject == "Алгебра":
-            reply_markup = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🔎 Найти решение", callback_data="find_solution_algebra")],
-            ])
-        elif subject == "Геометрия":
-            reply_markup = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🔎 Найти решение", callback_data="find_solution_geometry")],
-            ])
-
         if photos:
-            # Если есть фото, отправляем первое фото с текстом
+            homework_text += f"📸 Фото: {len(photos)} шт.\n"
+            has_any_photos = True
+            # Определяем callback для кнопки "Найти решение"
+            solution_cb = None
+            if subject == "Алгебра":
+                solution_cb = "find_solution_algebra"
+            elif subject == "Геометрия":
+                solution_cb = "find_solution_geometry"
+            all_photos_to_send.append((subject, photos, solution_cb))
+        combined_text += homework_text + "\n"
+
+    # Кнопки навигации + решения для предметов без фото
+    nav_buttons = []
+    for subject, (text, photos) in homework_dict.items():
+        if not photos:
+            if subject == "Алгебра":
+                nav_buttons.append([InlineKeyboardButton(text="🔎 Найти решение (Алгебра)", callback_data="find_solution_algebra")])
+            elif subject == "Геометрия":
+                nav_buttons.append([InlineKeyboardButton(text="🔎 Найти решение (Геометрия)", callback_data="find_solution_geometry")])
+    nav_buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data="student_view")])
+    keyboard = InlineKeyboardMarkup(inline_keyboard=nav_buttons)
+
+    # Редактируем текущее сообщение вместо удаления
+    await safe_edit_or_answer(
+        query.message,
+        combined_text[:4096],
+        reply_markup=keyboard
+    )
+    
+    # Отправляем фотографии отдельными сообщениями (их нельзя вставить через edit_text)
+    all_message_ids = []
+    for subject, photo_ids, solution_cb in all_photos_to_send:
+        for idx, photo_id in enumerate(photo_ids):
             try:
-                first_message = await query.message.answer_photo(
-                    photo=photos[0],
-                    caption=homework_text[:1024],  # Ограничение Telegram для caption
-                    reply_markup=reply_markup
-                )
-                all_message_ids.append(first_message.message_id)
-                
-                # Отправляем остальные фото отдельно
-                for photo_id in photos[1:]:
-                    try:
-                        extra_message = await query.message.answer_photo(photo=photo_id)
-                        all_message_ids.append(extra_message.message_id)
-                    except Exception as e:
-                        print(f"❌ Ошибка при отправке фото: {e}")
-            except Exception as e:
-                # Если не удалось отправить фото, отправляем текст
-                print(f"❌ Ошибка при отправке фото: {e}")
-                sent = await query.message.answer(homework_text)
+                rm = None
+                # Кнопка "Найти решение" на последнее фото предмета
+                if idx == len(photo_ids) - 1 and solution_cb:
+                    rm = InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="🔎 Найти решение", callback_data=solution_cb)],
+                    ])
+                if photo_id.startswith("pdf:"):
+                    sent = await query.message.answer_document(
+                        document=photo_id[4:],
+                        reply_markup=rm
+                    )
+                else:
+                    sent = await query.message.answer_photo(
+                        photo=photo_id,
+                        reply_markup=rm
+                    )
                 all_message_ids.append(sent.message_id)
-        else:
-            # Если фото нет, отправляем только текст
-            sent = await query.message.answer(homework_text, reply_markup=reply_markup)
-            all_message_ids.append(sent.message_id)
+            except Exception as e:
+                print(f"❌ Ошибка при отправке фото {subject}: {e}")
     
     await state.update_data(last_homework_message_ids=all_message_ids)
     await query.answer()
@@ -1418,7 +1447,8 @@ async def view_homework(query: CallbackQuery, state: FSMContext):
     buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data=f"view_date_{date}")])
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
     
-    await query.message.edit_text(
+    await safe_edit_or_answer(
+        query.message,
         f"📚 {subject}\n"
         f"📅 {format_date_with_weekday(date, mark_today=True)}\n\n"
         f"📝 {text}",
@@ -1430,7 +1460,10 @@ async def view_homework(query: CallbackQuery, state: FSMContext):
     if photos:
         for photo_id in photos:
             try:
-                sent_message = await query.message.answer_photo(photo_id)
+                if isinstance(photo_id, str) and photo_id.startswith("pdf:"):
+                    sent_message = await query.message.answer_document(photo_id[4:])
+                else:
+                    sent_message = await query.message.answer_photo(photo_id)
                 photo_message_ids.append(sent_message.message_id)
             except Exception as e:
                 print(f"❌ Ошибка при отправке фото: {e}")
@@ -1569,12 +1602,8 @@ async def back_to_menu(query: CallbackQuery, state: FSMContext):
             [InlineKeyboardButton(text="📚 Мои ДЗ", callback_data="student_view")],
         ])
 
-    try:
-        await query.message.delete()
-    except Exception as e:
-        print(f"❌ Не удалось удалить сообщение меню: {e}")
-
-    await query.message.answer(
+    await safe_edit_or_answer(
+        query.message,
         "👋 Главное меню\n\n"
         "Выбери действие:",
         reply_markup=keyboard

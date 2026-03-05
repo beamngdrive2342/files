@@ -45,6 +45,9 @@ MAX_NOTIFY_CONCURRENCY = 20
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 SOLUTIONS_INDEX_TTL_SEC = 120
 
+# Предметы, для которых есть решения из учебника
+SUBJECTS_WITH_SOLUTIONS = {"Алгебра", "Геометрия"}
+
 _solution_index: dict[str, dict[str, list[Path]]] = {"algebra": {}, "geometry": {}}
 _solution_index_expires_at = 0.0
 _solution_index_lock = asyncio.Lock()
@@ -377,6 +380,7 @@ class AddHomeworkStates(StatesGroup):
     """Добавление ДЗ"""
     waiting_for_date = State()
     waiting_for_subject = State()
+    waiting_for_source_type = State()  # Из учебника или нет
     waiting_for_content = State()
 
 
@@ -650,6 +654,26 @@ async def add_select_subject(query: CallbackQuery, state: FSMContext):
         return
     
     await state.update_data(subject=subject, photos=[], text_parts=[])
+    
+    # Для предметов с решениями — спрашиваем тип задания
+    if subject in SUBJECTS_WITH_SOLUTIONS:
+        await state.set_state(AddHomeworkStates.waiting_for_source_type)
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📘 Из учебника", callback_data="add_source_textbook")],
+            [InlineKeyboardButton(text="📝 Другое (доска, карточка...)", callback_data="add_source_other")],
+            [InlineKeyboardButton(text="◀️ Назад", callback_data="add_back_to_subject_from_source")],
+        ])
+        await query.message.edit_text(
+            f"📚 {subject} — откуда задание?\n\n"
+            f"📘 **Из учебника** — ученики смогут найти ответы\n"
+            f"📝 **Другое** — без кнопки ответов",
+            reply_markup=keyboard
+        )
+        await query.answer()
+        return
+    
+    # Для остальных предметов — сразу к контенту
+    await state.update_data(is_textbook=False)
     await state.set_state(AddHomeworkStates.waiting_for_content)
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -664,6 +688,58 @@ async def add_select_subject(query: CallbackQuery, state: FSMContext):
         f"📝 Добавление ДЗ:\n"
         f"Дата: {format_date_with_weekday(date)}\n"
         f"Предмет: {subject}\n\n"
+        f"Добавляйте текст, фото и PDF в любом порядке:",
+        reply_markup=keyboard
+    )
+    await query.answer()
+
+
+@router.callback_query(F.data == "add_back_to_subject_from_source", AddHomeworkStates.waiting_for_source_type)
+async def add_back_to_subject_from_source(query: CallbackQuery, state: FSMContext):
+    """Назад к выбору предмета из экрана выбора типа задания"""
+    if query.from_user.id != ADMIN_ID:
+        return
+    data = await state.get_data()
+    date = data.get("date")
+    if not date:
+        await query.answer("❌ Ошибка: дата не найдена", show_alert=True)
+        return
+    await state.update_data(subject=None, is_textbook=False)
+    await state.set_state(AddHomeworkStates.waiting_for_subject)
+    keyboard = create_subject_buttons("add_subject_", "add_hw")
+    await query.message.edit_text(
+        f"📚 Выберите предмет для даты {format_date_with_weekday(date)}:",
+        reply_markup=keyboard
+    )
+    await query.answer()
+
+
+@router.callback_query(F.data.startswith("add_source_"), AddHomeworkStates.waiting_for_source_type)
+async def add_select_source_type(query: CallbackQuery, state: FSMContext):
+    """Выбор типа задания: из учебника или другое"""
+    source = query.data.replace("add_source_", "")
+    is_textbook = (source == "textbook")
+    data = await state.get_data()
+    date = data.get("date")
+    subject = data.get("subject")
+    
+    await state.update_data(is_textbook=is_textbook)
+    await state.set_state(AddHomeworkStates.waiting_for_content)
+    
+    source_label = "📘 из учебника" if is_textbook else "📝 другое"
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✏️ Добавить текст", callback_data="add_text")],
+        [InlineKeyboardButton(text="📸 Добавить фото", callback_data="add_photo"),
+         InlineKeyboardButton(text="📋 Добавить PDF", callback_data="add_pdf")],
+        [InlineKeyboardButton(text="✅ Завершить", callback_data="finish_add")],
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="add_back_subject")],
+    ])
+    
+    await query.message.edit_text(
+        f"📝 Добавление ДЗ:\n"
+        f"Дата: {format_date_with_weekday(date)}\n"
+        f"Предмет: {subject} ({source_label})\n\n"
         f"Добавляйте текст, фото и PDF в любом порядке:",
         reply_markup=keyboard
     )
@@ -791,6 +867,7 @@ async def finish_add_hw(query: CallbackQuery, state: FSMContext):
     subject = data.get("subject")
     text_parts = data.get("text_parts", [])
     photos = data.get("photos", [])
+    is_textbook = data.get("is_textbook", False)
     
     if not text_parts:
         await query.answer("❌ Добавьте хотя бы текст!", show_alert=True)
@@ -798,7 +875,8 @@ async def finish_add_hw(query: CallbackQuery, state: FSMContext):
     
     full_text = "\n\n".join(text_parts)
     
-    if await db_call(db.add_homework, date, subject, full_text, photos):
+    if await db_call(db.add_homework, date, subject, full_text, photos, is_textbook):
+        source_label = " (📘 учебник)" if is_textbook else ""
         # Создаем клавиатуру с выбором действий
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="➕ Добавить еще (на ту же дату)", callback_data=f"add_more_hw_{date}")],
@@ -806,7 +884,7 @@ async def finish_add_hw(query: CallbackQuery, state: FSMContext):
         ])
         
         await query.message.edit_text(
-            f"✅ ДЗ по предмету **{subject}** на **{format_date_with_weekday(date)}** успешно добавлено!\n\n"
+            f"✅ ДЗ по предмету **{subject}**{source_label} на **{format_date_with_weekday(date)}** успешно добавлено!\n\n"
             f"Что вы хотите сделать дальше?",
             reply_markup=keyboard
         )
@@ -905,8 +983,8 @@ async def edit_select_subject(query: CallbackQuery, state: FSMContext):
         await query.answer("❌ ДЗ не найдено", show_alert=True)
         return
     
-    text, photos = homework
-    await state.update_data(subject=subject, text=text, photos=photos or [])
+    text, photos, is_textbook = homework
+    await state.update_data(subject=subject, text=text, photos=photos or [], is_textbook=is_textbook)
     await state.set_state(EditHomeworkStates.waiting_for_content)
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -1230,9 +1308,10 @@ async def view_all_hw(query: CallbackQuery):
         return
     
     text = "📋 Все домашние задания:\n\n"
-    for date, subject, hw_text, photos in all_hw:
+    for date, subject, hw_text, photos, is_tb in all_hw:
         photo_info = f" 📸({len(photos)})" if photos else ""
-        text += f"📅 {format_date_with_weekday(date)} | 📚 {subject}{photo_info}\n"
+        tb_info = " 📘" if is_tb else ""
+        text += f"📅 {format_date_with_weekday(date)} | 📚 {subject}{tb_info}{photo_info}\n"
         text += f"   {hw_text[:50]}{'...' if len(hw_text) > 50 else ''}\n\n"
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -1337,7 +1416,7 @@ async def display_homework_for_date(query: CallbackQuery, state: FSMContext, dat
     has_any_photos = False
     all_photos_to_send: list[tuple[str, list[str], str | None]] = []  # (subject, photo_ids, reply_markup_cb)
 
-    for subject, (text, photos) in homework_dict.items():
+    for subject, (text, photos, is_textbook) in homework_dict.items():
         homework_text = (
             f"📚 {subject}\n"
             f"📝 {text}\n"
@@ -1345,19 +1424,20 @@ async def display_homework_for_date(query: CallbackQuery, state: FSMContext, dat
         if photos:
             homework_text += f"📸 Фото: {len(photos)} шт.\n"
             has_any_photos = True
-            # Определяем callback для кнопки "Найти решение"
+            # Кнопка решения только для заданий из учебника
             solution_cb = None
-            if subject == "Алгебра":
-                solution_cb = "find_solution_algebra"
-            elif subject == "Геометрия":
-                solution_cb = "find_solution_geometry"
+            if is_textbook:
+                if subject == "Алгебра":
+                    solution_cb = "find_solution_algebra"
+                elif subject == "Геометрия":
+                    solution_cb = "find_solution_geometry"
             all_photos_to_send.append((subject, photos, solution_cb))
         combined_text += homework_text + "\n"
 
-    # Кнопки навигации + решения для предметов без фото
+    # Кнопки навигации + решения для предметов без фото (только если из учебника)
     nav_buttons = []
-    for subject, (text, photos) in homework_dict.items():
-        if not photos:
+    for subject, (text, photos, is_textbook) in homework_dict.items():
+        if not photos and is_textbook:
             if subject == "Алгебра":
                 nav_buttons.append([InlineKeyboardButton(text="🔎 Найти решение (Алгебра)", callback_data="find_solution_algebra")])
             elif subject == "Геометрия":
@@ -1437,13 +1517,15 @@ async def view_homework(query: CallbackQuery, state: FSMContext):
         await query.answer("❌ ДЗ не найдено", show_alert=True)
         return
     
-    text, photos = homework
+    text, photos, is_textbook = homework
     
     buttons = []
-    if subject == "Алгебра":
-        buttons.append([InlineKeyboardButton(text="🔎 Найти решение", callback_data="find_solution_algebra")])
-    elif subject == "Геометрия":
-        buttons.append([InlineKeyboardButton(text="🔎 Найти решение", callback_data="find_solution_geometry")])
+    # Кнопка «Найти решение» только если задание из учебника
+    if is_textbook:
+        if subject == "Алгебра":
+            buttons.append([InlineKeyboardButton(text="🔎 Найти решение", callback_data="find_solution_algebra")])
+        elif subject == "Геометрия":
+            buttons.append([InlineKeyboardButton(text="🔎 Найти решение", callback_data="find_solution_geometry")])
     buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data=f"view_date_{date}")])
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
     

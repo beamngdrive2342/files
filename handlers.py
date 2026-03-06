@@ -315,10 +315,11 @@ def create_schedule_subject_buttons(
         subjects = SUBJECTS
 
     buttons = []
-    for subject in subjects:
-        label = subject
+    for idx, subject in enumerate(subjects, start=1):
         if homework_dict is not None and subject in homework_dict:
-            label = f"✅ {subject}"
+            label = f"{idx}. ✅ {subject}"
+        else:
+            label = f"{idx}. {subject}"
         buttons.append([InlineKeyboardButton(text=label, callback_data=f"{prefix}{subject}")])
     buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data=back_callback)])
     return InlineKeyboardMarkup(inline_keyboard=buttons)

@@ -1548,6 +1548,7 @@ async def view_subject_from_schedule(query: CallbackQuery, state: FSMContext):
 
     text, photos, is_textbook = homework
 
+    # Кнопки внизу
     buttons = []
     if is_textbook:
         if subject == "Алгебра":
@@ -1557,16 +1558,16 @@ async def view_subject_from_schedule(query: CallbackQuery, state: FSMContext):
     buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data=f"view_date_{date}")])
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
 
-    await safe_edit_or_answer(
-        query.message,
-        f"📚 {subject}\n"
-        f"📅 {format_date_with_weekday(date, mark_today=True)}\n\n"
-        f"📝 {text}",
-        reply_markup=keyboard,
-    )
-
     photo_message_ids = []
+
     if photos:
+        # Заголовок в текущем сообщении
+        await safe_edit_or_answer(
+            query.message,
+            f"📚 {subject}\n"
+            f"📅 {format_date_with_weekday(date, mark_today=True)}",
+        )
+        # Отправляем фото
         for photo_id in photos:
             try:
                 if isinstance(photo_id, str) and photo_id.startswith("pdf:"):
@@ -1576,6 +1577,21 @@ async def view_subject_from_schedule(query: CallbackQuery, state: FSMContext):
                 photo_message_ids.append(sent_message.message_id)
             except Exception as e:
                 print(f"❌ Ошибка при отправке фото: {e}")
+        # Текст задания + кнопки внизу
+        bottom_msg = await query.message.answer(
+            f"📝 {text}",
+            reply_markup=keyboard,
+        )
+        photo_message_ids.append(bottom_msg.message_id)
+    else:
+        # Без фото — всё в одном сообщении
+        await safe_edit_or_answer(
+            query.message,
+            f"📚 {subject}\n"
+            f"📅 {format_date_with_weekday(date, mark_today=True)}\n\n"
+            f"📝 {text}",
+            reply_markup=keyboard,
+        )
 
     await state.update_data(last_homework_message_ids=photo_message_ids)
     await query.answer()
@@ -1607,16 +1623,14 @@ async def view_homework(query: CallbackQuery, state: FSMContext):
     buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data=f"view_date_{date}")])
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
 
-    await safe_edit_or_answer(
-        query.message,
-        f"📚 {subject}\n"
-        f"📅 {format_date_with_weekday(date, mark_today=True)}\n\n"
-        f"📝 {text}",
-        reply_markup=keyboard,
-    )
-
     photo_message_ids = []
+
     if photos:
+        await safe_edit_or_answer(
+            query.message,
+            f"📚 {subject}\n"
+            f"📅 {format_date_with_weekday(date, mark_today=True)}",
+        )
         for photo_id in photos:
             try:
                 if isinstance(photo_id, str) and photo_id.startswith("pdf:"):
@@ -1626,6 +1640,19 @@ async def view_homework(query: CallbackQuery, state: FSMContext):
                 photo_message_ids.append(sent_message.message_id)
             except Exception as e:
                 print(f"❌ Ошибка при отправке фото: {e}")
+        bottom_msg = await query.message.answer(
+            f"📝 {text}",
+            reply_markup=keyboard,
+        )
+        photo_message_ids.append(bottom_msg.message_id)
+    else:
+        await safe_edit_or_answer(
+            query.message,
+            f"📚 {subject}\n"
+            f"📅 {format_date_with_weekday(date, mark_today=True)}\n\n"
+            f"📝 {text}",
+            reply_markup=keyboard,
+        )
 
     await state.update_data(last_homework_message_ids=photo_message_ids)
     await query.answer()

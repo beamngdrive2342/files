@@ -1020,12 +1020,46 @@ async def start_edit_hw(query: CallbackQuery, state: FSMContext):
         await query.answer("❌ У вас нет доступа!", show_alert=True)
         return
     await state.set_state(EditHomeworkStates.waiting_for_date)
-    
-    dates = get_dates_list()
-    keyboard = create_date_buttons(dates, "edit_date_", "admin_panel")
-    
+
+    today = datetime.now()
+    keyboard = create_month_calendar_keyboard(
+        today.year,
+        today.month,
+        back_callback="admin_panel",
+        date_callback_prefix="edit_date_",
+        nav_callback_prefix="edit_calendar_",
+    )
+
     await query.message.edit_text(
-        "📅 Выберите дату для редактирования:",
+        "📅 Выберите дату в календаре:",
+        reply_markup=keyboard
+    )
+    await query.answer()
+
+
+@router.callback_query(F.data.startswith("edit_calendar_"), EditHomeworkStates.waiting_for_date)
+async def edit_calendar_month(query: CallbackQuery):
+    """Переключение месяцев в календаре выбора даты для редактирования ДЗ."""
+    payload = query.data.replace("edit_calendar_", "", 1)
+    try:
+        year_str, month_str = payload.split("_", 1)
+        year = int(year_str)
+        month = int(month_str)
+        if month < 1 or month > 12:
+            raise ValueError()
+    except Exception:
+        await query.answer("❌ Ошибка календаря", show_alert=True)
+        return
+
+    keyboard = create_month_calendar_keyboard(
+        year,
+        month,
+        back_callback="admin_panel",
+        date_callback_prefix="edit_date_",
+        nav_callback_prefix="edit_calendar_",
+    )
+    await query.message.edit_text(
+        "📅 Выберите дату в календаре:",
         reply_markup=keyboard
     )
     await query.answer()
@@ -1038,21 +1072,23 @@ async def edit_select_date(query: CallbackQuery, state: FSMContext):
         await query.answer("❌ У вас нет доступа!", show_alert=True)
         return
     date = query.data.replace("edit_date_", "")
-    
+
     homework_dict = await db_call(db.get_homework_by_date, date)
-    
+
     if not homework_dict:
         await query.answer(f"❌ На дату {format_date_with_weekday(date)} нет ДЗ", show_alert=True)
         return
-    
+
     await state.update_data(date=date)
     await state.set_state(EditHomeworkStates.waiting_for_subject)
-    
-    buttons = [[InlineKeyboardButton(text=f"✏️ {subject}", callback_data=f"edit_subject_{subject}")] 
-               for subject in homework_dict.keys()]
-    buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data="edit_hw")])
-    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
-    
+
+    keyboard = create_schedule_subject_buttons(
+        date,
+        prefix="edit_subject_",
+        back_callback="edit_hw",
+        homework_dict=homework_dict,
+    )
+
     await query.message.edit_text(
         f"📚 Выберите предмет для редактирования на {format_date_with_weekday(date)}:",
         reply_markup=keyboard
@@ -1128,10 +1164,12 @@ async def edit_back_to_subject(query: CallbackQuery, state: FSMContext):
     await state.update_data(subject=None, text=None, photos=[], waiting_for_text=False, waiting_for_photo=False)
     await state.set_state(EditHomeworkStates.waiting_for_subject)
     homework_dict = await db_call(db.get_homework_by_date, date)
-    buttons = [[InlineKeyboardButton(text=f"✏️ {subject}", callback_data=f"edit_subject_{subject}")] 
-               for subject in homework_dict.keys()]
-    buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data="edit_hw")])
-    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+    keyboard = create_schedule_subject_buttons(
+        date,
+        prefix="edit_subject_",
+        back_callback="edit_hw",
+        homework_dict=homework_dict,
+    )
     await query.message.edit_text(
         f"📚 Выберите предмет для редактирования на {format_date_with_weekday(date)}:",
         reply_markup=keyboard
@@ -1474,7 +1512,7 @@ async def view_calendar_month(query: CallbackQuery):
 async def display_homework_for_date(query: CallbackQuery, state: FSMContext, date: str, date_label: str):
     """
     Показывает список предметов по расписанию на дату.
-    Предметы, для которых есть ДЗ, отмечены ✅.
+    Предмет��, для которых есть ДЗ, отмечены ✅.
     Ученик нажимает на предмет — видит ДЗ.
     """
     await clear_last_solution_messages(query, state)

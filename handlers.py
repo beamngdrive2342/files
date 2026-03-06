@@ -24,7 +24,7 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from datetime import datetime, timedelta
-from config import ADMIN_ID, ADMIN_PASSWORD, SUBJECTS, DAYS_TO_SHOW
+from config import ADMIN_ID, ADMIN_PASSWORD, SUBJECTS, DAYS_TO_SHOW, SCHEDULE, get_unique_subjects_for_weekday
 from database import Database
 
 # Инициализация
@@ -284,6 +284,42 @@ def create_subject_buttons(prefix: str = "subject_", back_callback: str = "back_
     buttons = []
     for subject in SUBJECTS:
         buttons.append([InlineKeyboardButton(text=subject, callback_data=f"{prefix}{subject}")])
+    buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data=back_callback)])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_weekday_from_date(date_str: str) -> int | None:
+    """Возвращает номер дня недели (0=Пн) по строке даты ДД.ММ.ГГГГ."""
+    try:
+        dt = datetime.strptime(date_str, "%d.%m.%Y")
+        return dt.weekday()
+    except Exception:
+        return None
+
+
+def create_schedule_subject_buttons(
+    date_str: str,
+    prefix: str = "subject_",
+    back_callback: str = "back_to_menu",
+    homework_dict: dict | None = None,
+) -> InlineKeyboardMarkup:
+    """
+    Создание кнопок предметов по расписанию для данного дня.
+    Если homework_dict предоставлен, рядом с предметами с ДЗ ставится ✅.
+    Для выходных показывает все предметы.
+    """
+    weekday = get_weekday_from_date(date_str)
+    if weekday is not None and weekday in SCHEDULE:
+        subjects = get_unique_subjects_for_weekday(weekday)
+    else:
+        subjects = SUBJECTS
+
+    buttons = []
+    for subject in subjects:
+        label = subject
+        if homework_dict is not None and subject in homework_dict:
+            label = f"✅ {subject}"
+        buttons.append([InlineKeyboardButton(text=label, callback_data=f"{prefix}{subject}")])
     buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data=back_callback)])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -706,7 +742,7 @@ async def add_select_date(query: CallbackQuery, state: FSMContext):
     await state.update_data(date=date)
     await state.set_state(AddHomeworkStates.waiting_for_subject)
     
-    keyboard = create_subject_buttons("add_subject_", "add_hw")
+    keyboard = create_schedule_subject_buttons(date, "add_subject_", "add_hw")
     
     await query.message.edit_text(
         f"📚 Выберите предмет для даты {format_date_with_weekday(date)}:",
@@ -776,7 +812,7 @@ async def add_back_to_subject_from_source(query: CallbackQuery, state: FSMContex
         return
     await state.update_data(subject=None, is_textbook=False)
     await state.set_state(AddHomeworkStates.waiting_for_subject)
-    keyboard = create_subject_buttons("add_subject_", "add_hw")
+    keyboard = create_schedule_subject_buttons(date, "add_subject_", "add_hw")
     await query.message.edit_text(
         f"📚 Выберите предмет для даты {format_date_with_weekday(date)}:",
         reply_markup=keyboard
@@ -909,8 +945,8 @@ async def add_back_to_subject(query: CallbackQuery, state: FSMContext):
         return
     await state.update_data(subject=None, text_parts=[], photos=[], waiting_for_text=False)
     await state.set_state(AddHomeworkStates.waiting_for_subject)
-    keyboard = create_subject_buttons("add_subject_", "add_hw")
-    await query.message.edit_text(f"📚 Выберите предмет для даты {date}:", reply_markup=keyboard)
+    keyboard = create_schedule_subject_buttons(date, "add_subject_", "add_hw")
+    await query.message.edit_text(f"📚 Выберите предмет для даты {format_date_with_weekday(date)}:", reply_markup=keyboard)
     await query.answer()
 
 
@@ -966,7 +1002,7 @@ async def add_more_hw(query: CallbackQuery, state: FSMContext):
     await state.update_data(date=date)
     await state.set_state(AddHomeworkStates.waiting_for_subject)
     
-    keyboard = create_subject_buttons("add_subject_", "admin_panel")
+    keyboard = create_schedule_subject_buttons(date, "add_subject_", "admin_panel")
     
     await query.message.edit_text(
         f"📚 Выберите следующий предмет для даты {format_date_with_weekday(date)}:",
@@ -1436,103 +1472,37 @@ async def view_calendar_month(query: CallbackQuery):
 
 async def display_homework_for_date(query: CallbackQuery, state: FSMContext, date: str, date_label: str):
     """
-    Отображение всех ДЗ на указанную дату.
-    Первый предмет (текстовый) встраивается в текущее сообщение через edit_text,
-    остальные — отправляются отдельно (фото нельзя вставить через edit_text).
+    Показывает список предметов по расписанию на дату.
+    Предметы, для которых есть ДЗ, отмечены ✅.
+    Ученик нажимает на предмет — видит ДЗ.
     """
     await clear_last_solution_messages(query, state)
     await clear_last_homework_photos(query, state)
     homework_dict = await db_call(db.get_homework_by_date, date)
     formatted_date = format_date_with_weekday(date, mark_today=True)
-    
-    if not homework_dict:
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="◀️ Назад", callback_data="student_view")],
-        ])
-        if date_label in ("Сегодня", "Завтра"):
-            no_hw_text = f"📭 Нет заданий на {date_label.lower()} ({formatted_date})"
-        else:
-            no_hw_text = f"📭 Нет заданий на {formatted_date}"
-        await safe_edit_or_answer(
-            query.message,
-            no_hw_text,
-            reply_markup=keyboard
-        )
-        await query.answer()
-        return
-    
-    # ---- Формируем общий текст со всеми предметами ----
+
+    # Сохраняем дату для навигации «Назад»
+    await state.update_data(current_view_date=date)
+
     if date_label in ("Сегодня", "Завтра"):
-        title_text = f"📚 Домашние задания на {date_label.lower()} ({formatted_date}):\n\n"
+        title = f"📚 Расписание на {date_label.lower()} ({formatted_date})"
     else:
-        title_text = f"📚 Домашние задания на {formatted_date}:\n\n"
+        title = f"📚 Расписание на {formatted_date}"
 
-    combined_text = title_text
-    has_any_photos = False
-    all_photos_to_send: list[tuple[str, list[str], str | None]] = []  # (subject, photo_ids, reply_markup_cb)
+    keyboard = create_schedule_subject_buttons(
+        date,
+        prefix=f"stview_{date}_",
+        back_callback="student_view",
+        homework_dict=homework_dict,
+    )
 
-    for subject, (text, photos, is_textbook) in homework_dict.items():
-        homework_text = (
-            f"📚 {subject}\n"
-            f"📝 {text}\n"
-        )
-        if photos:
-            homework_text += f"📸 Фото: {len(photos)} шт.\n"
-            has_any_photos = True
-            # Кнопка решения только для заданий из учебника
-            solution_cb = None
-            if is_textbook:
-                if subject == "Алгебра":
-                    solution_cb = "find_solution_algebra"
-                elif subject == "Геометрия":
-                    solution_cb = "find_solution_geometry"
-            all_photos_to_send.append((subject, photos, solution_cb))
-        combined_text += homework_text + "\n"
-
-    # Кнопки навигации + решения для предметов без фото (только если из учебника)
-    nav_buttons = []
-    for subject, (text, photos, is_textbook) in homework_dict.items():
-        if not photos and is_textbook:
-            if subject == "Алгебра":
-                nav_buttons.append([InlineKeyboardButton(text="🔎 Найти решение (Алгебра)", callback_data="find_solution_algebra")])
-            elif subject == "Геометрия":
-                nav_buttons.append([InlineKeyboardButton(text="🔎 Найти решение (Геометрия)", callback_data="find_solution_geometry")])
-    nav_buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data="student_view")])
-    keyboard = InlineKeyboardMarkup(inline_keyboard=nav_buttons)
-
-    # Редактируем текущее сообщение вместо удаления
     await safe_edit_or_answer(
         query.message,
-        combined_text[:4096],
-        reply_markup=keyboard
+        f"{title}\n\n"
+        f"✅ — задание есть\n"
+        f"Нажмите на предмет, чтобы посмотреть ДЗ:",
+        reply_markup=keyboard,
     )
-    
-    # Отправляем фотографии отдельными сообщениями (их нельзя вставить через edit_text)
-    all_message_ids = []
-    for subject, photo_ids, solution_cb in all_photos_to_send:
-        for idx, photo_id in enumerate(photo_ids):
-            try:
-                rm = None
-                # Кнопка "Найти решение" на последнее фото предмета
-                if idx == len(photo_ids) - 1 and solution_cb:
-                    rm = InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text="🔎 Найти решение", callback_data=solution_cb)],
-                    ])
-                if photo_id.startswith("pdf:"):
-                    sent = await query.message.answer_document(
-                        document=photo_id[4:],
-                        reply_markup=rm
-                    )
-                else:
-                    sent = await query.message.answer_photo(
-                        photo=photo_id,
-                        reply_markup=rm
-                    )
-                all_message_ids.append(sent.message_id)
-            except Exception as e:
-                print(f"❌ Ошибка при отправке фото {subject}: {e}")
-    
-    await state.update_data(last_homework_message_ids=all_message_ids)
     await query.answer()
 
 
@@ -1557,25 +1527,27 @@ async def view_date_selected(query: CallbackQuery, state: FSMContext):
     await display_homework_for_date(query, state, date, date)
 
 
-@router.callback_query(F.data.startswith("view_subject_"))
-async def view_homework(query: CallbackQuery, state: FSMContext):
-    """Просмотр ДЗ по предмету"""
-    data_parts = query.data.replace("view_subject_", "").rsplit("_", 1)
-    date = data_parts[0]
-    subject = data_parts[1]
-    
+@router.callback_query(F.data.startswith("stview_"))
+async def view_subject_from_schedule(query: CallbackQuery, state: FSMContext):
+    """Просмотр ДЗ по предмету (из расписания)"""
+    # callback_data = stview_{date}_{subject}
+    payload = query.data.replace("stview_", "", 1)
+    # Дата в формате ДД.ММ.ГГГГ (10 символов), затем _ и предмет
+    date = payload[:10]
+    subject = payload[11:]  # пропускаем _
+
     await clear_last_solution_messages(query, state)
     await clear_last_homework_photos(query, state)
+
     homework = await db_call(db.get_homework, date, subject)
-    
+
     if not homework:
-        await query.answer("❌ ДЗ не найдено", show_alert=True)
+        await query.answer(f"📭 По предмету {subject} задание не задано", show_alert=True)
         return
-    
+
     text, photos, is_textbook = homework
-    
+
     buttons = []
-    # Кнопка «Найти решение» только если задание из учебника
     if is_textbook:
         if subject == "Алгебра":
             buttons.append([InlineKeyboardButton(text="🔎 Найти решение", callback_data="find_solution_algebra")])
@@ -1583,17 +1555,16 @@ async def view_homework(query: CallbackQuery, state: FSMContext):
             buttons.append([InlineKeyboardButton(text="🔎 Найти решение", callback_data="find_solution_geometry")])
     buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data=f"view_date_{date}")])
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
-    
+
     await safe_edit_or_answer(
         query.message,
         f"📚 {subject}\n"
         f"📅 {format_date_with_weekday(date, mark_today=True)}\n\n"
         f"📝 {text}",
-        reply_markup=keyboard
+        reply_markup=keyboard,
     )
-    
-    photo_message_ids = []
 
+    photo_message_ids = []
     if photos:
         for photo_id in photos:
             try:
@@ -1606,7 +1577,56 @@ async def view_homework(query: CallbackQuery, state: FSMContext):
                 print(f"❌ Ошибка при отправке фото: {e}")
 
     await state.update_data(last_homework_message_ids=photo_message_ids)
-    
+    await query.answer()
+
+
+@router.callback_query(F.data.startswith("view_subject_"))
+async def view_homework(query: CallbackQuery, state: FSMContext):
+    """Просмотр ДЗ по предмету (из уведомлений, обратная совместимость)"""
+    data_parts = query.data.replace("view_subject_", "").rsplit("_", 1)
+    date = data_parts[0]
+    subject = data_parts[1]
+
+    await clear_last_solution_messages(query, state)
+    await clear_last_homework_photos(query, state)
+    homework = await db_call(db.get_homework, date, subject)
+
+    if not homework:
+        await query.answer("❌ ДЗ не найдено", show_alert=True)
+        return
+
+    text, photos, is_textbook = homework
+
+    buttons = []
+    if is_textbook:
+        if subject == "Алгебра":
+            buttons.append([InlineKeyboardButton(text="🔎 Найти решение", callback_data="find_solution_algebra")])
+        elif subject == "Геометрия":
+            buttons.append([InlineKeyboardButton(text="🔎 Найти решение", callback_data="find_solution_geometry")])
+    buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data=f"view_date_{date}")])
+    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+
+    await safe_edit_or_answer(
+        query.message,
+        f"📚 {subject}\n"
+        f"📅 {format_date_with_weekday(date, mark_today=True)}\n\n"
+        f"📝 {text}",
+        reply_markup=keyboard,
+    )
+
+    photo_message_ids = []
+    if photos:
+        for photo_id in photos:
+            try:
+                if isinstance(photo_id, str) and photo_id.startswith("pdf:"):
+                    sent_message = await query.message.answer_document(photo_id[4:])
+                else:
+                    sent_message = await query.message.answer_photo(photo_id)
+                photo_message_ids.append(sent_message.message_id)
+            except Exception as e:
+                print(f"❌ Ошибка при отправке фото: {e}")
+
+    await state.update_data(last_homework_message_ids=photo_message_ids)
     await query.answer()
 
 @router.callback_query(F.data == "find_solution_algebra")

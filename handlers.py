@@ -42,6 +42,7 @@ if not logger.handlers:
 
 MAX_DELETE_CONCURRENCY = 12
 MAX_NOTIFY_CONCURRENCY = 20
+MEDIA_GROUP_DEBOUNCE_SEC = 0.8
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 SOLUTIONS_INDEX_TTL_SEC = 120
 
@@ -83,6 +84,81 @@ async def safe_edit_or_answer(
 async def db_call(func: Callable[..., Any], *args, **kwargs) -> Any:
     """Выполняет синхронный вызов БД в отдельном потоке, не блокируя event loop."""
     return await asyncio.to_thread(func, *args, **kwargs)
+
+
+def build_add_content_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✏️ Добавить текст", callback_data="add_text")],
+        [InlineKeyboardButton(text="📸 Добавить фото", callback_data="add_photo"),
+         InlineKeyboardButton(text="📋 Добавить PDF", callback_data="add_pdf")],
+        [InlineKeyboardButton(text="✅ Завершить", callback_data="finish_add")],
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="add_back_subject")],
+    ])
+
+
+def build_edit_content_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✏️ Изменить текст", callback_data="edit_text")],
+        [InlineKeyboardButton(text="📸 Добавить ещё фото", callback_data="edit_photo")],
+        [InlineKeyboardButton(text="✅ Сохранить изменения", callback_data="finish_edit")],
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="edit_back_subject")],
+    ])
+
+
+_pending_add_media_groups: dict[str, asyncio.Task] = {}
+_pending_edit_media_groups: dict[str, asyncio.Task] = {}
+
+
+def _media_group_task_key(message: Message) -> str:
+    return f"{message.chat.id}:{message.media_group_id}"
+
+
+def schedule_add_media_group_confirmation(message: Message):
+    if not message.media_group_id:
+        return
+
+    key = _media_group_task_key(message)
+    task = _pending_add_media_groups.get(key)
+    if task:
+        task.cancel()
+
+    async def _send_confirmation():
+        try:
+            await asyncio.sleep(MEDIA_GROUP_DEBOUNCE_SEC)
+            await message.answer("✅ Фото добавлено!\nПродолжайте:", reply_markup=build_add_content_keyboard())
+        except asyncio.CancelledError:
+            return
+        finally:
+            _pending_add_media_groups.pop(key, None)
+
+    _pending_add_media_groups[key] = asyncio.create_task(_send_confirmation())
+
+
+def schedule_edit_media_group_confirmation(message: Message, state: FSMContext):
+    if not message.media_group_id:
+        return
+
+    key = _media_group_task_key(message)
+    task = _pending_edit_media_groups.get(key)
+    if task:
+        task.cancel()
+
+    async def _send_confirmation():
+        try:
+            await asyncio.sleep(MEDIA_GROUP_DEBOUNCE_SEC)
+            data = await state.get_data()
+            photos = data.get("photos", [])
+            await state.update_data(waiting_for_photo=False)
+            await message.answer(
+                f"✅ Фото добавлено! ({len(photos)} шт.) Выберите действие:",
+                reply_markup=build_edit_content_keyboard(),
+            )
+        except asyncio.CancelledError:
+            return
+        finally:
+            _pending_edit_media_groups.pop(key, None)
+
+    _pending_edit_media_groups[key] = asyncio.create_task(_send_confirmation())
 
 
 async def delete_messages_batch(bot: Bot, chat_id: int, message_ids: list[int], error_prefix: str):
@@ -676,13 +752,7 @@ async def add_select_subject(query: CallbackQuery, state: FSMContext):
     await state.update_data(is_textbook=False)
     await state.set_state(AddHomeworkStates.waiting_for_content)
     
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✏️ Добавить текст", callback_data="add_text")],
-        [InlineKeyboardButton(text="📸 Добавить фото", callback_data="add_photo"),
-         InlineKeyboardButton(text="📋 Добавить PDF", callback_data="add_pdf")],
-        [InlineKeyboardButton(text="✅ Завершить", callback_data="finish_add")],
-        [InlineKeyboardButton(text="◀️ Назад", callback_data="add_back_subject")],
-    ])
+    keyboard = build_add_content_keyboard()
     
     await query.message.edit_text(
         f"📝 Добавление ДЗ:\n"
@@ -728,13 +798,7 @@ async def add_select_source_type(query: CallbackQuery, state: FSMContext):
     
     source_label = "📘 из учебника" if is_textbook else "📝 другое"
     
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✏️ Добавить текст", callback_data="add_text")],
-        [InlineKeyboardButton(text="📸 Добавить фото", callback_data="add_photo"),
-         InlineKeyboardButton(text="📋 Добавить PDF", callback_data="add_pdf")],
-        [InlineKeyboardButton(text="✅ Завершить", callback_data="finish_add")],
-        [InlineKeyboardButton(text="◀️ Назад", callback_data="add_back_subject")],
-    ])
+    keyboard = build_add_content_keyboard()
     
     await query.message.edit_text(
         f"📝 Добавление ДЗ:\n"
@@ -769,13 +833,7 @@ async def process_add_content(message: Message, state: FSMContext):
             pass
 
     def _get_kb():
-        return InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="✏️ Добавить текст", callback_data="add_text")],
-            [InlineKeyboardButton(text="📸 Добавить фото", callback_data="add_photo"),
-             InlineKeyboardButton(text="📋 Добавить PDF", callback_data="add_pdf")],
-            [InlineKeyboardButton(text="✅ Завершить", callback_data="finish_add")],
-            [InlineKeyboardButton(text="◀️ Назад", callback_data="add_back_subject")],
-        ])
+        return build_add_content_keyboard()
 
     if data.get("waiting_for_text"):
         text_parts = data.get("text_parts", [])
@@ -786,7 +844,10 @@ async def process_add_content(message: Message, state: FSMContext):
     elif message.photo:
         photos.append(message.photo[-1].file_id)
         await state.update_data(photos=photos)
-        await message.answer(f"✅ Фото добавлено!\nПродолжайте:", reply_markup=_get_kb())
+        if message.media_group_id:
+            schedule_add_media_group_confirmation(message)
+        else:
+            await message.answer("✅ Фото добавлено!\nПродолжайте:", reply_markup=_get_kb())
 
     elif message.document and message.document.mime_type == "application/pdf":
         photos.append(f"pdf:{message.document.file_id}")
@@ -827,13 +888,7 @@ async def cancel_content_input(query: CallbackQuery, state: FSMContext):
     
     await state.update_data(waiting_for_text=False)
     
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✏️ Добавить текст", callback_data="add_text")],
-        [InlineKeyboardButton(text="📸 Добавить фото", callback_data="add_photo"),
-         InlineKeyboardButton(text="📋 Добавить PDF", callback_data="add_pdf")],
-        [InlineKeyboardButton(text="✅ Завершить", callback_data="finish_add")],
-        [InlineKeyboardButton(text="◀️ Назад", callback_data="add_back_subject")],
-    ])
+    keyboard = build_add_content_keyboard()
     
     await query.message.edit_text(
         f"📝 Добавление ДЗ:\nДата: {date}\nПредмет: {subject}\n\nВыбирайте действие:",
@@ -869,11 +924,11 @@ async def finish_add_hw(query: CallbackQuery, state: FSMContext):
     photos = data.get("photos", [])
     is_textbook = data.get("is_textbook", False)
     
-    if not text_parts:
-        await query.answer("❌ Добавьте хотя бы текст!", show_alert=True)
+    if not text_parts and not photos:
+        await query.answer("❌ Добавьте текст, фото или PDF!", show_alert=True)
         return
     
-    full_text = "\n\n".join(text_parts)
+    full_text = "\n\n".join(text_parts).strip()
     
     if await db_call(db.add_homework, date, subject, full_text, photos, is_textbook):
         source_label = " (📘 учебник)" if is_textbook else ""
@@ -1098,15 +1153,15 @@ async def process_edit_content(message: Message, state: FSMContext):
         photo_id = message.photo[-1].file_id
         photos = data.get("photos", [])
         photos.append(photo_id)
-        await state.update_data(photos=photos, waiting_for_photo=False)
-        
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="✏️ Изменить текст", callback_data="edit_text")],
-            [InlineKeyboardButton(text="📸 Добавить ещё фото", callback_data="edit_photo")],
-            [InlineKeyboardButton(text="✅ Сохранить изменения", callback_data="finish_edit")],
-            [InlineKeyboardButton(text="◀️ Назад", callback_data="edit_back_subject")],
-        ])
-        await message.answer(f"✅ Фото добавлено! ({len(photos)} шт.) Выберите действие:", reply_markup=keyboard)
+        if message.media_group_id:
+            await state.update_data(photos=photos, waiting_for_photo=True)
+            schedule_edit_media_group_confirmation(message, state)
+        else:
+            await state.update_data(photos=photos, waiting_for_photo=False)
+            await message.answer(
+                f"✅ Фото добавлено! ({len(photos)} шт.) Выберите действие:",
+                reply_markup=build_edit_content_keyboard(),
+            )
 
 
 # ==================== УДАЛЕНИЕ ДЗ ====================

@@ -743,7 +743,8 @@ async def add_select_date(query: CallbackQuery, state: FSMContext):
     await state.update_data(date=date)
     await state.set_state(AddHomeworkStates.waiting_for_subject)
     
-    keyboard = create_schedule_subject_buttons(date, "add_subject_", "add_hw")
+    homework_dict = await db_call(db.get_homework_by_date, date)
+    keyboard = create_schedule_subject_buttons(date, "add_subject_", "add_hw", homework_dict=homework_dict)
     
     await query.message.edit_text(
         f"📚 Выберите предмет для даты {format_date_with_weekday(date)}:",
@@ -813,7 +814,8 @@ async def add_back_to_subject_from_source(query: CallbackQuery, state: FSMContex
         return
     await state.update_data(subject=None, is_textbook=False)
     await state.set_state(AddHomeworkStates.waiting_for_subject)
-    keyboard = create_schedule_subject_buttons(date, "add_subject_", "add_hw")
+    homework_dict = await db_call(db.get_homework_by_date, date)
+    keyboard = create_schedule_subject_buttons(date, "add_subject_", "add_hw", homework_dict=homework_dict)
     await query.message.edit_text(
         f"📚 Выберите предмет для даты {format_date_with_weekday(date)}:",
         reply_markup=keyboard
@@ -946,7 +948,8 @@ async def add_back_to_subject(query: CallbackQuery, state: FSMContext):
         return
     await state.update_data(subject=None, text_parts=[], photos=[], waiting_for_text=False)
     await state.set_state(AddHomeworkStates.waiting_for_subject)
-    keyboard = create_schedule_subject_buttons(date, "add_subject_", "add_hw")
+    homework_dict = await db_call(db.get_homework_by_date, date)
+    keyboard = create_schedule_subject_buttons(date, "add_subject_", "add_hw", homework_dict=homework_dict)
     await query.message.edit_text(f"📚 Выберите предмет для даты {format_date_with_weekday(date)}:", reply_markup=keyboard)
     await query.answer()
 
@@ -1003,7 +1006,8 @@ async def add_more_hw(query: CallbackQuery, state: FSMContext):
     await state.update_data(date=date)
     await state.set_state(AddHomeworkStates.waiting_for_subject)
     
-    keyboard = create_schedule_subject_buttons(date, "add_subject_", "admin_panel")
+    homework_dict = await db_call(db.get_homework_by_date, date)
+    keyboard = create_schedule_subject_buttons(date, "add_subject_", "admin_panel", homework_dict=homework_dict)
     
     await query.message.edit_text(
         f"📚 Выберите следующий предмет для даты {format_date_with_weekday(date)}:",

@@ -1600,11 +1600,13 @@ async def view_subject_from_schedule(query: CallbackQuery, state: FSMContext):
 
     if photos:
         # Заголовок в текущем сообщении
-        await safe_edit_or_answer(
+        header_msg = await safe_edit_or_answer(
             query.message,
             f"📚 {subject}\n"
             f"📅 {format_date_with_weekday(date, mark_today=True)}",
         )
+        if header_msg:
+            photo_message_ids.append(header_msg.message_id)
         # Отправляем фото
         for photo_id in photos:
             try:
@@ -1664,11 +1666,13 @@ async def view_homework(query: CallbackQuery, state: FSMContext):
     photo_message_ids = []
 
     if photos:
-        await safe_edit_or_answer(
+        header_msg = await safe_edit_or_answer(
             query.message,
             f"📚 {subject}\n"
             f"📅 {format_date_with_weekday(date, mark_today=True)}",
         )
+        if header_msg:
+            photo_message_ids.append(header_msg.message_id)
         for photo_id in photos:
             try:
                 if isinstance(photo_id, str) and photo_id.startswith("pdf:"):

@@ -1512,9 +1512,15 @@ async def view_calendar_month(query: CallbackQuery):
 async def display_homework_for_date(query: CallbackQuery, state: FSMContext, date: str, date_label: str):
     """
     Показывает список предметов по расписанию на дату.
-    Предмет��, для которых есть ДЗ, отмечены ✅.
+    Предметы, для которых есть ДЗ, отмечены ✅.
     Ученик нажимает на предмет — видит ДЗ.
     """
+    # Проверка на выходной день (суббота=5, воскресенье=6)
+    weekday = get_weekday_from_date(date)
+    if weekday is not None and weekday >= 5:
+        await query.answer("😴 В этот день уроков нет!", show_alert=True)
+        return
+
     await clear_last_solution_messages(query, state)
     await clear_last_homework_photos(query, state)
     homework_dict = await db_call(db.get_homework_by_date, date)

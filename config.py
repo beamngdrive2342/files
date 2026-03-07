@@ -23,9 +23,6 @@ ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
 # 📁 Путь к базе данных SQLite
 DATABASE_PATH = os.getenv("DATABASE_PATH", "homework.db")
 
-# 🤖 API-ключ OpenRouter для AI-помощника
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
-
 # 🎓 Список всех предметов (не секрет)
 SUBJECTS = [
     "Алгебра",

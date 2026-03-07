@@ -530,12 +530,12 @@ async def cmd_start(message: Message):
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="👑 Админ панель", callback_data="admin_auth")],
             [InlineKeyboardButton(text="📚 Мои ДЗ", callback_data="student_view")],
-            [InlineKeyboardButton(text="📖 Инструкция", callback_data="show_instructions")],
+            [InlineKeyboardButton(text="🕵️ Я только зашёл, что делать?", callback_data="show_instructions")],
         ])
     else:
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📚 Мои ДЗ", callback_data="student_view")],
-            [InlineKeyboardButton(text="📖 Инструкция", callback_data="show_instructions")],
+            [InlineKeyboardButton(text="🕵️ Я только зашёл, что делать?", callback_data="show_instructions")],
         ])
 
     await message.answer(
@@ -1828,35 +1828,30 @@ async def noop_callback(query: CallbackQuery):
 async def show_instructions(query: CallbackQuery):
     """Показ инструкции для учеников"""
     instruction_text = (
-        "📖 <b>Инструкция по использованию бота</b>\n\n"
+        "👋 Добро пожаловать в бот для домашних заданий!\n"
+        "Здесь ты всегда найдёшь актуальные задания, "
+        "расписание и решения — всё в одном месте. "
+        "Давай разберёмся, как всё работает!\n\n"
 
-        "🔹 <b>Просмотр домашних заданий</b>\n"
-        "Нажми «📚 Мои ДЗ» и выбери нужную дату:\n"
+        "📚 <b>Домашние задания</b>\n"
+        "Нажми «📚 Мои ДЗ» и выбери удобный вариант:\n\n"
         "• <b>На сегодня</b> — задания на текущий день\n"
         "• <b>На завтра</b> — задания на следующий день\n"
-        "• <b>Выбрать дату</b> — откроется календарь\n\n"
+        "• <b>Выбрать дату</b> — откроется календарь для любой даты\n\n\n"
 
-        "🔹 <b>Расписание и предметы</b>\n"
-        "После выбора даты ты увидишь список предметов "
-        "по расписанию на этот день.\n"
+        "🗓 <b>Расписание и предметы</b>\n"
+        "После выбора даты ты увидишь список предметов по расписанию.\n"
         "✅ — означает, что ДЗ по предмету уже добавлено.\n"
-        "Нажми на предмет, чтобы посмотреть задание.\n\n"
+        "Просто нажми на нужный предмет, чтобы посмотреть задание.\n\n"
 
-        "🔹 <b>Поиск решений</b>\n"
-        "Если задание по <b>Алгебре</b> или <b>Геометрии</b> "
-        "из учебника, появится кнопка «🔎 Найти решение».\n"
-        "Нажми на нее, введи номер задания — и бот "
-        "покажет решение из учебника.\n\n"
+        "🔎 <b>Поиск решений</b>\n"
+        "Если задание по <b>Алгебре</b> или <b>Геометрии</b> из учебника — "
+        "появится кнопка «🔎 Найти решение». Нажми на неё, введи номер "
+        "задания и получи готовое решение из учебника!\n\n"
 
-        "🔹 <b>Уведомления</b>\n"
-        "Когда добавляется новое ДЗ, ты получишь "
-        "уведомление с кнопкой для быстрого просмотра.\n\n"
-
-        "🔹 <b>Выходные</b>\n"
-        "В субботу и воскресенье уроков нет — бот "
-        "сообщит об этом при выборе таких дат.\n\n"
-
-        "💡 Чтобы вернуться в начало, нажми /start"
+        "🏖 <b>Выходные дни</b>\n"
+        "В субботу и воскресенье уроков нет — бот сообщит об этом "
+        "при выборе таких дат. Отдыхай спокойно! 😄"
     )
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -1884,12 +1879,12 @@ async def back_to_menu(query: CallbackQuery, state: FSMContext):
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="👑 Админ панель", callback_data="admin_auth")],
             [InlineKeyboardButton(text="📚 Мои ДЗ", callback_data="student_view")],
-            [InlineKeyboardButton(text="📖 Инструкция", callback_data="show_instructions")],
+            [InlineKeyboardButton(text="🕵️ Я только зашёл, что делать?", callback_data="show_instructions")],
         ])
     else:
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📚 Мои ДЗ", callback_data="student_view")],
-            [InlineKeyboardButton(text="📖 Инструкция", callback_data="show_instructions")],
+            [InlineKeyboardButton(text="🕵️ Я только зашёл, что делать?", callback_data="show_instructions")],
         ])
 
     await safe_edit_or_answer(

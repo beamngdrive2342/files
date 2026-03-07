@@ -24,8 +24,7 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from datetime import datetime, timedelta
-from config import ADMIN_ID, ADMIN_PASSWORD, SUBJECTS, DAYS_TO_SHOW, SCHEDULE, get_unique_subjects_for_weekday, OPENROUTER_API_KEY
-import aiohttp
+from config import ADMIN_ID, ADMIN_PASSWORD, SUBJECTS, DAYS_TO_SHOW, SCHEDULE, get_unique_subjects_for_weekday
 from database import Database
 
 # Инициализация
@@ -515,11 +514,6 @@ class SolutionSearchStates(StatesGroup):
     waiting_for_number = State()
 
 
-class AssistantStates(StatesGroup):
-    """Чат с AI-ассистентом"""
-    chatting = State()
-
-
 # ==================== ОБЩИЕ КОМАНДЫ ====================
 @router.message(Command("start"))
 async def cmd_start(message: Message):
@@ -536,12 +530,10 @@ async def cmd_start(message: Message):
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="👑 Админ панель", callback_data="admin_auth")],
             [InlineKeyboardButton(text="📚 Мои ДЗ", callback_data="student_view")],
-            [InlineKeyboardButton(text="🤖 Ассистент", callback_data="open_assistant")],
         ])
     else:
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📚 Мои ДЗ", callback_data="student_view")],
-            [InlineKeyboardButton(text="🤖 Ассистент", callback_data="open_assistant")],
         ])
 
     await message.answer(
@@ -1831,12 +1823,10 @@ async def back_to_menu(query: CallbackQuery, state: FSMContext):
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="👑 Админ панель", callback_data="admin_auth")],
             [InlineKeyboardButton(text="📚 Мои ДЗ", callback_data="student_view")],
-            [InlineKeyboardButton(text="🤖 Ассистент", callback_data="open_assistant")],
         ])
     else:
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📚 Мои ДЗ", callback_data="student_view")],
-            [InlineKeyboardButton(text="🤖 Ассистент", callback_data="open_assistant")],
         ])
 
     await safe_edit_or_answer(
@@ -1865,181 +1855,3 @@ async def handle_router_errors(event: ErrorEvent):
             logger.info("⚠️ Просроченный callback-query проигнорирован.")
             return True
     return False
-
-
-# ==================== AI АССИСТЕНТ ====================
-
-OPENROUTER_MODEL = "google/gemma-3-27b-it:free"
-OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
-ASSISTANT_SYSTEM_PROMPT = (
-    "Ты умный и дружелюбный учебный ассистент для учеников 10А класса. "
-    "Помогай с домашними заданиями, объясняй темы, решай задачи по математике, физике, химии, биологии, "
-    "истории, обществознанию, русскому языку, литературе, английскому и другим предметам. "
-    "Отвечай на русском языке, кратко и понятно. "
-    "Если задан математический пример — покажи решение по шагам."
-)
-MAX_HISTORY_MESSAGES = 10  # хранить последние N сообщений в истории
-
-
-async def call_openrouter(messages: list[dict]) -> str:
-    """Выполняет запрос к OpenRouter API и возвращает ответ ассистента."""
-    headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://t.me/dzbot",
-        "X-Title": "DZBot Assistant",
-    }
-    payload = {
-        "model": OPENROUTER_MODEL,
-        "messages": messages,
-        "max_tokens": 1024,
-    }
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                OPENROUTER_API_URL,
-                json=payload,
-                headers=headers,
-                timeout=aiohttp.ClientTimeout(total=30),
-            ) as resp:
-                if resp.status != 200:
-                    error_text = await resp.text()
-                    logger.error(f"OpenRouter error {resp.status}: {error_text}")
-                    return f"❌ Ошибка API ({resp.status}). Попробуй позже."
-                data = await resp.json()
-                return data["choices"][0]["message"]["content"].strip()
-    except asyncio.TimeoutError:
-        return "⏳ Ассистент не ответил вовремя. Попробуй ещё раз."
-    except Exception as e:
-        logger.error(f"OpenRouter exception: {e}")
-        return "❌ Ошибка соединения с ассистентом. Попробуй позже."
-
-
-@router.callback_query(F.data == "open_assistant")
-async def open_assistant(query: CallbackQuery, state: FSMContext):
-    """Открыть чат с AI-ассистентом"""
-    await clear_last_solution_messages(query, state)
-    await clear_last_homework_photos(query, state)
-    await state.set_state(AssistantStates.chatting)
-    await state.update_data(assistant_history=[])
-
-    stop_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🗑 Очистить историю", callback_data="assistant_clear")],
-        [InlineKeyboardButton(text="◀️ Выйти", callback_data="assistant_exit")],
-    ])
-
-    await safe_edit_or_answer(
-        query.message,
-        "🤖 *Привет! Я твой учебный ассистент.*\n\n"
-        "Задай любой вопрос по учёбе — объясню тему, помогу с задачей или домашним заданием.\n\n"
-        "💬 Просто напиши свой вопрос:",
-        reply_markup=stop_keyboard,
-        parse_mode="Markdown",
-    )
-    await query.answer()
-
-
-@router.callback_query(F.data == "assistant_clear", AssistantStates.chatting)
-async def assistant_clear_history(query: CallbackQuery, state: FSMContext):
-    """Очистить историю диалога с ассистентом"""
-    await state.update_data(assistant_history=[])
-
-    stop_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🗑 Очистить историю", callback_data="assistant_clear")],
-        [InlineKeyboardButton(text="◀️ Выйти", callback_data="assistant_exit")],
-    ])
-    await safe_edit_or_answer(
-        query.message,
-        "🤖 *Ассистент*\n\n"
-        "✅ История очищена. Начнём сначала!\n\n"
-        "💬 Напиши свой вопрос:",
-        reply_markup=stop_keyboard,
-        parse_mode="Markdown",
-    )
-    await query.answer("История очищена")
-
-
-@router.callback_query(F.data == "assistant_exit")
-async def assistant_exit(query: CallbackQuery, state: FSMContext):
-    """Выйти из чата с ассистентом"""
-    await state.clear()
-
-    if query.from_user.id == ADMIN_ID:
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="👑 Админ панель", callback_data="admin_auth")],
-            [InlineKeyboardButton(text="📚 Мои ДЗ", callback_data="student_view")],
-            [InlineKeyboardButton(text="🤖 Ассистент", callback_data="open_assistant")],
-        ])
-    else:
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="📚 Мои ДЗ", callback_data="student_view")],
-            [InlineKeyboardButton(text="🤖 Ассистент", callback_data="open_assistant")],
-        ])
-
-    await safe_edit_or_answer(
-        query.message,
-        "👋 Главное меню\n\nВыбери действие:",
-        reply_markup=keyboard,
-    )
-    await query.answer()
-
-
-@router.message(AssistantStates.chatting)
-async def handle_assistant_message(message: Message, state: FSMContext):
-    """Обработка сообщения пользователя в режиме ассистента"""
-    user_text = (message.text or "").strip()
-    if not user_text:
-        await message.answer("💬 Напиши текстовый вопрос.")
-        return
-
-    if not OPENROUTER_API_KEY:
-        await message.answer("❌ API ключ ассистента не настроен.")
-        return
-
-    # Индикатор загрузки
-    thinking_msg = await message.answer("🤔 Думаю...")
-
-    # Формируем историю диалога
-    data = await state.get_data()
-    history: list[dict] = data.get("assistant_history", [])
-    history.append({"role": "user", "content": user_text})
-
-    # Ограничиваем историю
-    if len(history) > MAX_HISTORY_MESSAGES:
-        history = history[-MAX_HISTORY_MESSAGES:]
-
-    messages_to_send = [{"role": "system", "content": ASSISTANT_SYSTEM_PROMPT}] + history
-
-    # Запрос к API
-    response_text = await call_openrouter(messages_to_send)
-
-    # Сохраняем ответ в историю
-    history.append({"role": "assistant", "content": response_text})
-    if len(history) > MAX_HISTORY_MESSAGES:
-        history = history[-MAX_HISTORY_MESSAGES:]
-    await state.update_data(assistant_history=history)
-
-    # Удаляем «Думаю...»
-    try:
-        await thinking_msg.delete()
-    except Exception:
-        pass
-
-    stop_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🗑 Очистить историю", callback_data="assistant_clear")],
-        [InlineKeyboardButton(text="◀️ Выйти", callback_data="assistant_exit")],
-    ])
-
-    # Отправляем ответ
-    try:
-        await message.answer(
-            f"🤖 {response_text}",
-            reply_markup=stop_keyboard,
-            parse_mode="Markdown",
-        )
-    except Exception:
-        # Если Markdown сломался — отправляем без форматирования
-        await message.answer(
-            f"🤖 {response_text}",
-            reply_markup=stop_keyboard,
-        )

@@ -6,7 +6,6 @@
 import logging
 from pathlib import Path
 import asyncio
-import aiohttp
 import calendar
 from time import monotonic
 from typing import Any, Callable
@@ -25,7 +24,7 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from datetime import datetime, timedelta
-from config import ADMIN_ID, ADMIN_PASSWORD, SUBJECTS, DAYS_TO_SHOW, SCHEDULE, get_unique_subjects_for_weekday, OPENROUTER_API_KEY
+from config import ADMIN_ID, ADMIN_PASSWORD, SUBJECTS, DAYS_TO_SHOW, SCHEDULE, get_unique_subjects_for_weekday
 from database import Database
 
 # Инициализация
@@ -515,11 +514,6 @@ class SolutionSearchStates(StatesGroup):
     waiting_for_number = State()
 
 
-class AIChatStates(StatesGroup):
-    """AI-помощник"""
-    chatting = State()
-
-
 # ==================== ОБЩИЕ КОМАНДЫ ====================
 @router.message(Command("start"))
 async def cmd_start(message: Message):
@@ -536,12 +530,10 @@ async def cmd_start(message: Message):
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="👑 Админ панель", callback_data="admin_auth")],
             [InlineKeyboardButton(text="📚 Мои ДЗ", callback_data="student_view")],
-            [InlineKeyboardButton(text="🤖 AI Помощник", callback_data="ai_chat_start")],
         ])
     else:
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📚 Мои ДЗ", callback_data="student_view")],
-            [InlineKeyboardButton(text="🤖 AI Помощник", callback_data="ai_chat_start")],
         ])
 
     await message.answer(
@@ -1831,12 +1823,10 @@ async def back_to_menu(query: CallbackQuery, state: FSMContext):
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="👑 Админ панель", callback_data="admin_auth")],
             [InlineKeyboardButton(text="📚 Мои ДЗ", callback_data="student_view")],
-            [InlineKeyboardButton(text="🤖 AI Помощник", callback_data="ai_chat_start")],
         ])
     else:
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📚 Мои ДЗ", callback_data="student_view")],
-            [InlineKeyboardButton(text="🤖 AI Помощник", callback_data="ai_chat_start")],
         ])
 
     await safe_edit_or_answer(
@@ -1846,155 +1836,6 @@ async def back_to_menu(query: CallbackQuery, state: FSMContext):
         reply_markup=keyboard
     )
     await query.answer()
-
-
-# ==================== AI ПОМОЩНИК ====================
-OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-AI_SYSTEM_PROMPT = (
-    "Ты — дружелюбный AI-помощник для учеников 10А класса. "
-    "Ты помогаешь с учёбой: объясняешь темы, решаешь задачи, подсказываешь. "
-    "Отвечай кратко и понятно, используй эмодзи. Отвечай на русском языке."
-)
-AI_MAX_HISTORY = 10  # максимум пар сообщений в контексте
-
-
-async def ask_openrouter(messages: list[dict]) -> str:
-    """Отправляет запрос к OpenRouter API и возвращает ответ."""
-    headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "model": "qwen/qwen3-vl-235b-a22b-thinking",
-        "messages": messages,
-        "max_tokens": 1500,
-    }
-
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(OPENROUTER_URL, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=60)) as resp:
-                if resp.status != 200:
-                    error_text = await resp.text()
-                    logger.error(f"OpenRouter API error {resp.status}: {error_text}")
-                    return "❌ Ошибка: не удалось получить ответ от AI. Попробуйте позже."
-                data = await resp.json()
-                return data["choices"][0]["message"]["content"]
-    except asyncio.TimeoutError:
-        return "⏳ AI слишком долго думает. Попробуйте ещё раз."
-    except Exception as e:
-        logger.error(f"OpenRouter request failed: {e}")
-        return "❌ Произошла ошибка при обращении к AI. Попробуйте позже."
-
-
-@router.callback_query(F.data == "ai_chat_start")
-async def ai_chat_start(query: CallbackQuery, state: FSMContext):
-    """Начало чата с AI-помощником"""
-    await state.set_state(AIChatStates.chatting)
-    await state.update_data(ai_history=[])
-
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🗑 Очистить историю", callback_data="ai_clear_history")],
-        [InlineKeyboardButton(text="◀️ Назад", callback_data="ai_chat_exit")],
-    ])
-
-    await safe_edit_or_answer(
-        query.message,
-        "🤖 **AI Помощник**\n\n"
-        "Привет! Я AI-помощник для учёбы. Задай мне любой вопрос:\n\n"
-        "• Объясню тему по любому предмету\n"
-        "• Помогу решить задачу\n"
-        "• Подскажу формулу или правило\n\n"
-        "✏️ Просто напиши свой вопрос:",
-        reply_markup=keyboard,
-    )
-    await query.answer()
-
-
-@router.callback_query(F.data == "ai_clear_history")
-async def ai_clear_history(query: CallbackQuery, state: FSMContext):
-    """Очистка истории AI-чата"""
-    await state.update_data(ai_history=[])
-    await query.answer("🗑 История очищена!", show_alert=True)
-
-
-@router.callback_query(F.data == "ai_chat_exit")
-async def ai_chat_exit(query: CallbackQuery, state: FSMContext):
-    """Выход из AI-чата"""
-    await state.clear()
-
-    if query.from_user.id == ADMIN_ID:
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="👑 Админ панель", callback_data="admin_auth")],
-            [InlineKeyboardButton(text="📚 Мои ДЗ", callback_data="student_view")],
-            [InlineKeyboardButton(text="🤖 AI Помощник", callback_data="ai_chat_start")],
-        ])
-    else:
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="📚 Мои ДЗ", callback_data="student_view")],
-            [InlineKeyboardButton(text="🤖 AI Помощник", callback_data="ai_chat_start")],
-        ])
-
-    await safe_edit_or_answer(
-        query.message,
-        "👋 Главное меню\n\nВыбери действие:",
-        reply_markup=keyboard
-    )
-    await query.answer()
-
-
-@router.message(AIChatStates.chatting)
-async def ai_chat_message(message: Message, state: FSMContext):
-    """Обработка сообщения в AI-чате"""
-    user_text = (message.text or "").strip()
-    if not user_text:
-        await message.answer("✏️ Напишите текстовый вопрос.")
-        return
-
-    # Показываем индикатор «печатает»
-    thinking_msg = await message.answer("🤔 AI думает...")
-
-    # Собираем историю
-    data = await state.get_data()
-    history = data.get("ai_history", [])
-
-    # Формируем сообщения для API
-    messages = [{"role": "system", "content": AI_SYSTEM_PROMPT}]
-    for entry in history:
-        messages.append({"role": "user", "content": entry["user"]})
-        messages.append({"role": "assistant", "content": entry["assistant"]})
-    messages.append({"role": "user", "content": user_text})
-
-    # Запрос к AI
-    ai_response = await ask_openrouter(messages)
-
-    # Сохраняем в историю (ограничиваем размер)
-    history.append({"user": user_text, "assistant": ai_response})
-    if len(history) > AI_MAX_HISTORY:
-        history = history[-AI_MAX_HISTORY:]
-    await state.update_data(ai_history=history)
-
-    # Удаляем "AI думает..."
-    try:
-        await thinking_msg.delete()
-    except Exception:
-        pass
-
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🗑 Очистить историю", callback_data="ai_clear_history")],
-        [InlineKeyboardButton(text="◀️ Назад в меню", callback_data="ai_chat_exit")],
-    ])
-
-    # Telegram ограничивает сообщения 4096 символами
-    if len(ai_response) > 4000:
-        # Отправляем длинный ответ частями
-        for i in range(0, len(ai_response), 4000):
-            chunk = ai_response[i:i + 4000]
-            if i + 4000 >= len(ai_response):
-                await message.answer(f"🤖 {chunk}", reply_markup=keyboard)
-            else:
-                await message.answer(f"🤖 {chunk}")
-    else:
-        await message.answer(f"🤖 {ai_response}", reply_markup=keyboard)
 
 
 @router.errors()

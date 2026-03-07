@@ -1865,7 +1865,7 @@ async def ask_openrouter(messages: list[dict]) -> str:
         "Content-Type": "application/json",
     }
     payload = {
-        "model": "deepseek/deepseek-chat-v3-0324:free",
+        "model": "qwen/qwen3-vl-235b-a22b-thinking",
         "messages": messages,
         "max_tokens": 1500,
     }

@@ -523,12 +523,38 @@ class FeedbackStates(StatesGroup):
 @router.message(Command("start"))
 async def cmd_start(message: Message):
     """Главное меню"""
-    # Регистрируем пользователя для получения уведомлений
+    user_id = message.from_user.id
+    
+    # Регистрация администратора (он всегда имеет доступ)
+    if user_id == ADMIN_ID:
+        await db_call(
+            db.register_user,
+            user_id=user_id,
+            username=message.from_user.username,
+            first_name=message.from_user.first_name,
+            is_approved=1
+        )
+    else:
+        # Проверяем статус доступа пользователя
+        is_approved = await db_call(db.is_user_approved, user_id)
+        if not is_approved:
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📝 Подать заявку на вступление", callback_data="apply_for_access")]
+            ])
+            await message.answer(
+                "👋 Привет! Это закрытый бот с домашними заданиями.\n\n"
+                "Чтобы получить доступ к расписанию и заданиям, тебе нужно подать заявку.",
+                reply_markup=keyboard
+            )
+            return
+
+    # Если мы здесь, значит пользователь одобрен
     await db_call(
         db.register_user,
-        user_id=message.from_user.id,
+        user_id=user_id,
         username=message.from_user.username,
-        first_name=message.from_user.first_name
+        first_name=message.from_user.first_name,
+        is_approved=1
     )
     
     if message.from_user.id == ADMIN_ID:
@@ -571,6 +597,114 @@ async def cmd_help(message: Message):
         )
 
     await message.answer(help_text)
+
+
+# ==================== СИСТЕМА ЗАЯВОК ====================
+@router.callback_query(F.data == "apply_for_access")
+async def apply_for_access(query: CallbackQuery):
+    """Отправка заявки администратору"""
+    user_id = query.from_user.id
+    username = query.from_user.username
+    first_name = query.from_user.first_name
+    
+    # Добавляем пользователя со статусом неодобрен (0)
+    await db_call(
+        db.register_user,
+        user_id=user_id,
+        username=username,
+        first_name=first_name,
+        is_approved=0
+    )
+    
+    # Формируем имя
+    name_parts = [first_name or ""]
+    if query.from_user.last_name:
+        name_parts.append(query.from_user.last_name)
+    sender_name = " ".join(name_parts).strip() or "Неизвестный"
+    username_str = f" (@{username})" if username else ""
+    
+    admin_text = (
+        f"🔔 <b>Новая заявка на вступление!</b>\n\n"
+        f"👤 От: {sender_name}{username_str}\n"
+        f"🆔 ID: <code>{user_id}</code>\n\n"
+        f"Разрешить доступ?"
+    )
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="✅ Принять", callback_data=f"approve_{user_id}"),
+            InlineKeyboardButton(text="❌ Отклонить", callback_data=f"reject_{user_id}")
+        ]
+    ])
+    
+    try:
+        await query.bot.send_message(chat_id=ADMIN_ID, text=admin_text, reply_markup=keyboard, parse_mode="HTML")
+    except Exception as e:
+        logger.warning(f"Не удалось отправить заявку админу: {e}")
+        
+    await query.message.edit_text(
+        "✅ Твоя заявка отправлена администратору!\n"
+        "Ожидай одобрения. После этого мы пришлём тебе уведомление."
+    )
+    await query.answer()
+
+
+@router.callback_query(F.data.startswith("approve_"))
+async def approve_user_callback(query: CallbackQuery):
+    if query.from_user.id != ADMIN_ID:
+        await query.answer("❌ Нет доступа!", show_alert=True)
+        return
+        
+    try:
+        user_id = int(query.data.split("_")[1])
+    except ValueError:
+        await query.answer("❌ Ошибка ID", show_alert=True)
+        return
+        
+    # Утверждаем в базе
+    await db_call(db.set_user_approved, user_id, 1)
+    
+    # Уведомляем ученика
+    try:
+        await query.bot.send_message(
+            chat_id=user_id, 
+            text="🎉 <b>Твоя заявка одобрена!</b>\n\nТеперь тебе доступно главное меню. Нажми /start чтобы начать.", 
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logger.warning(f"Не удалось отправить уведомление об одобрении {user_id}: {e}")
+        
+    await query.message.edit_text(f"✅ Заявка пользователя <code>{user_id}</code> одобрена.", parse_mode="HTML")
+    await query.answer("Вы одобрили заявку!")
+
+
+@router.callback_query(F.data.startswith("reject_"))
+async def reject_user_callback(query: CallbackQuery):
+    if query.from_user.id != ADMIN_ID:
+        await query.answer("❌ Нет доступа!", show_alert=True)
+        return
+        
+    try:
+        user_id = int(query.data.split("_")[1])
+    except ValueError:
+        await query.answer("❌ Ошибка ID", show_alert=True)
+        return
+        
+    # Удаляем неодобренного пользователя
+    await db_call(db.delete_user, user_id)
+    
+    # Уведомляем ученика
+    try:
+        await query.bot.send_message(
+            chat_id=user_id, 
+            text="❌ К сожалению, твоя заявка на вступление была отклонена.", 
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        pass
+        
+    await query.message.edit_text(f"❌ Заявка пользователя <code>{user_id}</code> отклонена.", parse_mode="HTML")
+    await query.answer("Вы отклонили заявку.")
 
 
 # ==================== АУТЕНТИФИКАЦИЯ АДМИНА ====================

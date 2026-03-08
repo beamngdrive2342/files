@@ -514,6 +514,11 @@ class SolutionSearchStates(StatesGroup):
     waiting_for_number = State()
 
 
+class FeedbackStates(StatesGroup):
+    """Отправка пожелания/идеи"""
+    waiting_for_feedback = State()
+
+
 # ==================== ОБЩИЕ КОМАНДЫ ====================
 @router.message(Command("start"))
 async def cmd_start(message: Message):
@@ -530,11 +535,13 @@ async def cmd_start(message: Message):
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="👑 Админ панель", callback_data="admin_auth")],
             [InlineKeyboardButton(text="📚 Мои ДЗ", callback_data="student_view")],
+            [InlineKeyboardButton(text="💌 Пожелания и идеи", callback_data="show_feedback")],
             [InlineKeyboardButton(text="🕵️ Я только зашёл, что делать?", callback_data="show_instructions")],
         ])
     else:
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📚 Мои ДЗ", callback_data="student_view")],
+            [InlineKeyboardButton(text="💌 Пожелания и идеи", callback_data="show_feedback")],
             [InlineKeyboardButton(text="🕵️ Я только зашёл, что делать?", callback_data="show_instructions")],
         ])
 
@@ -635,11 +642,14 @@ async def handle_password_input(message: Message, state: FSMContext):
 
     if entered == ADMIN_PASSWORD:
         await state.clear()
+        feedback_count = await db_call(db.get_feedback_count)
+        fb_label = f"💌 Пожелания учеников" + (f" ({feedback_count}) 🔴" if feedback_count > 0 else "")
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="➕ Добавить ДЗ", callback_data="add_hw")],
             [InlineKeyboardButton(text="✏️ Редактировать", callback_data="edit_hw")],
             [InlineKeyboardButton(text="🗑 Удалить", callback_data="delete_hw")],
             [InlineKeyboardButton(text="📋 Все ДЗ", callback_data="view_all_hw")],
+            [InlineKeyboardButton(text=fb_label, callback_data="view_feedbacks")],
             [InlineKeyboardButton(text="◀️ Выход в меню", callback_data="back_to_menu")],
         ])
         await message.answer(
@@ -672,15 +682,17 @@ async def show_admin_panel(query: CallbackQuery, state: FSMContext):
         await query.answer("❌ У вас нет доступа!", show_alert=True)
         return
     await state.clear()
-    
+    feedback_count = await db_call(db.get_feedback_count)
+    fb_label = f"💌 Пожелания учеников" + (f" ({feedback_count}) 🔴" if feedback_count > 0 else "")
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="➕ Добавить ДЗ", callback_data="add_hw")],
         [InlineKeyboardButton(text="✏️ Редактировать", callback_data="edit_hw")],
         [InlineKeyboardButton(text="🗑 Удалить", callback_data="delete_hw")],
         [InlineKeyboardButton(text="📋 Все ДЗ", callback_data="view_all_hw")],
+        [InlineKeyboardButton(text=fb_label, callback_data="view_feedbacks")],
         [InlineKeyboardButton(text="◀️ Выход в меню", callback_data="back_to_menu")],
     ])
-    
+
     await query.message.edit_text(
         "✅ Админ панель\n\nВыберите действие:",
         reply_markup=keyboard
@@ -1823,6 +1835,226 @@ async def noop_callback(query: CallbackQuery):
     await query.answer()
 
 
+# ==================== ПОЖЕЛАНИЯ И ИДЕИ ====================
+@router.callback_query(F.data == "show_feedback")
+async def show_feedback(query: CallbackQuery, state: FSMContext):
+    """Экран пожеланий — предложить ученику написать идею"""
+    await state.set_state(FeedbackStates.waiting_for_feedback)
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_feedback")],
+    ])
+
+    await safe_edit_or_answer(
+        query.message,
+        "💌 <b>Пожелания и идеи</b>\n\n"
+        "Здесь ты можешь оставить своё пожелание или идею для улучшения бота.\n\n"
+        "— что тебе нравится\n"
+        "— что мешает или неудобно\n"
+        "— какие функции хотел бы добавить\n"
+        "— любые идеи, даже самые смелые\n\n"
+        "Каждое сообщение читается и учитывается 🙌\n\n"
+        "✍️ <b>Напиши своё пожелание прямо сейчас:</b>",
+        reply_markup=keyboard,
+        parse_mode="HTML",
+    )
+    await query.answer()
+
+
+@router.callback_query(F.data == "cancel_feedback", FeedbackStates.waiting_for_feedback)
+async def cancel_feedback(query: CallbackQuery, state: FSMContext):
+    """Отмена отправки пожелания"""
+    await state.clear()
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📚 Мои ДЗ", callback_data="student_view")],
+        [InlineKeyboardButton(text="💌 Пожелания и идеи", callback_data="show_feedback")],
+        [InlineKeyboardButton(text="🕵️ Я только зашёл, что делать?", callback_data="show_instructions")],
+    ])
+    await safe_edit_or_answer(
+        query.message,
+        "👋 Главное меню\n\nВыбери действие:",
+        reply_markup=keyboard,
+    )
+    await query.answer()
+
+
+@router.message(FeedbackStates.waiting_for_feedback)
+async def process_feedback(message: Message, state: FSMContext):
+    """Получение пожелания от ученика: сохраняем в БД и шлём пинг админу"""
+    feedback_text = (message.text or "").strip()
+
+    if not feedback_text:
+        await message.answer("⚠️ Пожалуйста, напиши текстовое сообщение.")
+        return
+
+    await state.clear()
+
+    user = message.from_user
+    # Сохраняем в БД
+    await db_call(
+        db.add_feedback,
+        user_id=user.id,
+        username=user.username or "",
+        first_name=user.first_name or "",
+        last_name=user.last_name or "",
+        text=feedback_text,
+    )
+
+    # Подтверждение ученику
+    back_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="◀️ В главное меню", callback_data="back_to_menu")],
+    ])
+    await message.answer(
+        "✅ Спасибо! Твоё пожелание отправлено.\n"
+        "Оно будет прочитано и учтено 🙌",
+        reply_markup=back_keyboard,
+    )
+
+    # Короткий пинг админу
+    feedback_count = await db_call(db.get_feedback_count)
+    try:
+        await message.bot.send_message(
+            chat_id=ADMIN_ID,
+            text=(
+                f"💌 Новое пожелание от ученика!\n"
+                f"Всего непрочитанных: {feedback_count}\n\n"
+                f"Открой → Админ панель → Пожелания учеников"
+            ),
+        )
+    except Exception as e:
+        logger.warning(f"Не удалось отправить пинг админу: {e}")
+
+
+# ==================== ПОЖЕЛАНИЯ: ПРОСМОТР АДМИНОМ ====================
+@router.callback_query(F.data == "view_feedbacks")
+async def view_feedbacks(query: CallbackQuery):
+    """Просмотр всех пожеланий учеников (только админ)"""
+    if query.from_user.id != ADMIN_ID:
+        await query.answer("❌ Нет доступа!", show_alert=True)
+        return
+
+    feedbacks = await db_call(db.get_all_feedback)
+
+    if not feedbacks:
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="◀️ Назад", callback_data="admin_panel")],
+        ])
+        await query.message.edit_text(
+            "💌 Пожелания учеников\n\n"
+            "📤 Пока пожеланий нет. Ученики ещё не отправляли!",
+            reply_markup=keyboard,
+        )
+        await query.answer()
+        return
+
+    # Формируем список кнопок: каждое пожелание + кнопка «Удалить»
+    buttons = []
+    text_lines = [f"💌 <b>Пожелания учеников</b> ({len(feedbacks)} шт.):\n"]
+
+    for fb_id, user_id, username, first_name, last_name, fb_text, created_at in feedbacks:
+        # Имя автора
+        name_parts = [first_name or ""]
+        if last_name:
+            name_parts.append(last_name)
+        sender = " ".join(name_parts).strip() or "Неизвестный"
+        uname = f" (@{username})" if username else ""
+
+        # Дата без секунд ("2026-03-08 21:00:00" → "08.03.2026 21:00")
+        try:
+            dt = datetime.strptime(created_at, "%Y-%m-%d %H:%M:%S")
+            date_str = dt.strftime("%d.%m.%Y %H:%M")
+        except Exception:
+            date_str = created_at
+
+        # Превью текста (обрезаем длинные)
+        preview = fb_text if len(fb_text) <= 120 else fb_text[:120] + "..."
+
+        text_lines.append(
+            f"\n📝 <b>{sender}{uname}</b> | {date_str}\n"
+            f"{preview}\n"
+            f"―――――――――――――"
+        )
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"🗑 Удалить №{fb_id} ({sender})",
+                callback_data=f"del_feedback_{fb_id}"
+            )
+        ])
+
+    buttons.append([InlineKeyboardButton(text="◀️ Назад в админ панель", callback_data="admin_panel")])
+    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+
+    full_text = "".join(text_lines)
+    # Telegram лимит 4096 символов
+    await query.message.edit_text(full_text[:4000], reply_markup=keyboard, parse_mode="HTML")
+    await query.answer()
+
+
+@router.callback_query(F.data.startswith("del_feedback_"))
+async def delete_feedback_item(query: CallbackQuery):
+    """Удаление конкретного пожелания по ID"""
+    if query.from_user.id != ADMIN_ID:
+        await query.answer("❌ Нет доступа!", show_alert=True)
+        return
+
+    try:
+        fb_id = int(query.data.replace("del_feedback_", ""))
+    except ValueError:
+        await query.answer("❌ Ошибка ID", show_alert=True)
+        return
+
+    deleted = await db_call(db.delete_feedback, fb_id)
+    if deleted:
+        await query.answer("✅ Пожелание удалено")
+    else:
+        await query.answer("⚠️ Не найдено (скорее всего уже удалено)", show_alert=True)
+
+    # Обновляем список пожеланий
+    feedbacks = await db_call(db.get_all_feedback)
+
+    if not feedbacks:
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="◀️ Назад", callback_data="admin_panel")],
+        ])
+        await query.message.edit_text(
+            "💌 Пожелания учеников\n\n✅ Все пожелания удалены — список пуст.",
+            reply_markup=keyboard,
+        )
+        return
+
+    buttons = []
+    text_lines = [f"💌 <b>Пожелания учеников</b> ({len(feedbacks)} шт.):\n"]
+
+    for fid, user_id, username, first_name, last_name, fb_text, created_at in feedbacks:
+        name_parts = [first_name or ""]
+        if last_name:
+            name_parts.append(last_name)
+        sender = " ".join(name_parts).strip() or "Неизвестный"
+        uname = f" (@{username})" if username else ""
+        try:
+            dt = datetime.strptime(created_at, "%Y-%m-%d %H:%M:%S")
+            date_str = dt.strftime("%d.%m.%Y %H:%M")
+        except Exception:
+            date_str = created_at
+        preview = fb_text if len(fb_text) <= 120 else fb_text[:120] + "..."
+        text_lines.append(
+            f"\n📝 <b>{sender}{uname}</b> | {date_str}\n"
+            f"{preview}\n"
+            f"―――――――――――――"
+        )
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"🗑 Удалить №{fid} ({sender})",
+                callback_data=f"del_feedback_{fid}"
+            )
+        ])
+
+    buttons.append([InlineKeyboardButton(text="◀️ Назад в админ панель", callback_data="admin_panel")])
+    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+    full_text = "".join(text_lines)
+    await query.message.edit_text(full_text[:4000], reply_markup=keyboard, parse_mode="HTML")
+
+
 # ==================== ИНСТРУКЦИЯ ====================
 @router.callback_query(F.data == "show_instructions")
 async def show_instructions(query: CallbackQuery):
@@ -1879,11 +2111,13 @@ async def back_to_menu(query: CallbackQuery, state: FSMContext):
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="👑 Админ панель", callback_data="admin_auth")],
             [InlineKeyboardButton(text="📚 Мои ДЗ", callback_data="student_view")],
-            [InlineKeyboardButton(text="🕵️ Я только зашёл, что делать?", callback_data="show_instructions")],
+            [InlineKeyboardButton(text="� Пожелания и идеи", callback_data="show_feedback")],
+            [InlineKeyboardButton(text="�🕵️ Я только зашёл, что делать?", callback_data="show_instructions")],
         ])
     else:
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📚 Мои ДЗ", callback_data="student_view")],
+            [InlineKeyboardButton(text="💌 Пожелания и идеи", callback_data="show_feedback")],
             [InlineKeyboardButton(text="🕵️ Я только зашёл, что делать?", callback_data="show_instructions")],
         ])
 

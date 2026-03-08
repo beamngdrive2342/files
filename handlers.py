@@ -742,6 +742,8 @@ async def cancel_password_input(query: CallbackQuery, state: FSMContext):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="👑 Админ панель", callback_data="admin_auth")],
         [InlineKeyboardButton(text="📚 Мои ДЗ", callback_data="student_view")],
+        [InlineKeyboardButton(text="💌 Пожелания и идеи", callback_data="show_feedback")],
+        [InlineKeyboardButton(text="🕵️ Я только зашёл, что делать?", callback_data="show_instructions")],
     ])
     await query.message.edit_text(
         "👋 Главное меню\n\nВыбери действие:",

@@ -108,6 +108,19 @@ class Database:
             )
         """)
 
+        # Таблица для хранения пожеланий учеников
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS feedback (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                username TEXT,
+                first_name TEXT,
+                last_name TEXT,
+                text TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_homework_date ON homework(date)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_homework_subject ON homework(subject)")
         cursor.execute("PRAGMA journal_mode = WAL")
@@ -580,4 +593,84 @@ class Database:
             return len(ids_to_delete)
         except Exception as e:
             print(f"❌ Ошибка при очистке старых ДЗ: {e}")
+            return 0
+
+    def add_feedback(self, user_id: int, username: str, first_name: str, last_name: str, text: str) -> bool:
+        """
+        Сохранение пожелания ученика в БД.
+
+        Returns:
+            True если успешно
+        """
+        try:
+            conn = self._connect()
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO feedback (user_id, username, first_name, last_name, text)
+                VALUES (?, ?, ?, ?, ?)
+            """, (user_id, username, first_name, last_name, text))
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            print(f"❌ Ошибка при сохранении пожелания: {e}")
+            return False
+
+    def get_all_feedback(self) -> list:
+        """
+        Получение всех пожеланий (новые первыми).
+
+        Returns:
+            Список кортежей (id, user_id, username, first_name, last_name, text, created_at)
+        """
+        try:
+            conn = self._connect()
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, user_id, username, first_name, last_name, text, created_at
+                FROM feedback
+                ORDER BY created_at DESC
+            """)
+            rows = cursor.fetchall()
+            conn.close()
+            return rows
+        except Exception as e:
+            print(f"❌ Ошибка при получении пожеланий: {e}")
+            return []
+
+    def delete_feedback(self, feedback_id: int) -> bool:
+        """
+        Удаление пожелания по ID.
+
+        Returns:
+            True если успешно
+        """
+        try:
+            conn = self._connect()
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM feedback WHERE id = ?", (feedback_id,))
+            deleted = cursor.rowcount > 0
+            conn.commit()
+            conn.close()
+            return deleted
+        except Exception as e:
+            print(f"❌ Ошибка при удалении пожелания: {e}")
+            return False
+
+    def get_feedback_count(self) -> int:
+        """
+        Количество непрочитанных пожеланий.
+
+        Returns:
+            Целое число
+        """
+        try:
+            conn = self._connect()
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM feedback")
+            row = cursor.fetchone()
+            conn.close()
+            return row[0] if row else 0
+        except Exception as e:
+            print(f"❌ Ошибка при подсчёте пожеланий: {e}")
             return 0

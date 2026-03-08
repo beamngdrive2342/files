@@ -1999,11 +1999,19 @@ async def show_feedback(query: CallbackQuery, state: FSMContext):
 async def cancel_feedback(query: CallbackQuery, state: FSMContext):
     """Отмена отправки пожелания"""
     await state.clear()
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📚 Мои ДЗ", callback_data="student_view")],
-        [InlineKeyboardButton(text="💌 Пожелания и идеи", callback_data="show_feedback")],
-        [InlineKeyboardButton(text="🕵️ Я только зашёл, что делать?", callback_data="show_instructions")],
-    ])
+    if query.from_user.id == ADMIN_ID:
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="👑 Админ панель", callback_data="admin_auth")],
+            [InlineKeyboardButton(text="📚 Мои ДЗ", callback_data="student_view")],
+            [InlineKeyboardButton(text="💌 Пожелания и идеи", callback_data="show_feedback")],
+            [InlineKeyboardButton(text="🕵️ Я только зашёл, что делать?", callback_data="show_instructions")],
+        ])
+    else:
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📚 Мои ДЗ", callback_data="student_view")],
+            [InlineKeyboardButton(text="💌 Пожелания и идеи", callback_data="show_feedback")],
+            [InlineKeyboardButton(text="🕵️ Я только зашёл, что делать?", callback_data="show_instructions")],
+        ])
     await safe_edit_or_answer(
         query.message,
         "👋 Главное меню\n\nВыбери действие:",

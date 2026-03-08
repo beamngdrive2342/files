@@ -104,9 +104,18 @@ class Database:
                 user_id INTEGER PRIMARY KEY,
                 username TEXT,
                 first_name TEXT,
-                registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                is_approved INTEGER NOT NULL DEFAULT 1
             )
         """)
+
+        # Миграция: добавляем колонку is_approved если её нет (с дефолтом 1 для старых учеников)
+        try:
+            cursor.execute("SELECT is_approved FROM users LIMIT 1")
+        except sqlite3.OperationalError:
+            logger.info("🔄 Миграция БД: добавляю колонку is_approved...")
+            cursor.execute("ALTER TABLE users ADD COLUMN is_approved INTEGER NOT NULL DEFAULT 1")
+            logger.info("✅ Колонка is_approved добавлена.")
 
         # Таблица для хранения пожеланий учеников
         cursor.execute("""
@@ -482,14 +491,15 @@ class Database:
             print(f"❌ Ошибка при проверке: {e}")
             return False
 
-    def register_user(self, user_id: int, username: str = None, first_name: str = None) -> bool:
+    def register_user(self, user_id: int, username: str = None, first_name: str = None, is_approved: int = 1) -> bool:
         """
-        Регистрация пользователя для получения уведомлений
+        Регистрация пользователя.
         
         Args:
             user_id: Telegram user ID
             username: Username пользователя
             first_name: Имя пользователя
+            is_approved: 1 если одобрен, 0 если ждет одобрения
             
         Returns:
             True если успешно
@@ -499,9 +509,9 @@ class Database:
             cursor = conn.cursor()
 
             cursor.execute("""
-                INSERT OR IGNORE INTO users (user_id, username, first_name)
-                VALUES (?, ?, ?)
-            """, (user_id, username, first_name))
+                INSERT OR IGNORE INTO users (user_id, username, first_name, is_approved)
+                VALUES (?, ?, ?, ?)
+            """, (user_id, username, first_name, is_approved))
 
             conn.commit()
             conn.close()
@@ -509,6 +519,55 @@ class Database:
 
         except Exception as e:
             print(f"❌ Ошибка при регистрации пользователя: {e}")
+            return False
+
+    def is_user_approved(self, user_id: int) -> bool:
+        """
+        Проверка, одобрен ли пользователь.
+        """
+        try:
+            conn = self._connect()
+            cursor = conn.cursor()
+            cursor.execute("SELECT is_approved FROM users WHERE user_id = ?", (user_id,))
+            result = cursor.fetchone()
+            conn.close()
+            if result:
+                return bool(result[0])
+            return False
+        except Exception as e:
+            print(f"❌ Ошибка при проверке одобрения пользователя: {e}")
+            return False
+
+    def set_user_approved(self, user_id: int, is_approved: int) -> bool:
+        """
+        Установка статуса одобрения пользователя.
+        """
+        try:
+            conn = self._connect()
+            cursor = conn.cursor()
+            cursor.execute("UPDATE users SET is_approved = ? WHERE user_id = ?", (is_approved, user_id))
+            updated = cursor.rowcount > 0
+            conn.commit()
+            conn.close()
+            return updated
+        except Exception as e:
+            print(f"❌ Ошибка при обновлении статуса одобрения: {e}")
+            return False
+
+    def delete_user(self, user_id: int) -> bool:
+        """
+        Удаление пользователя (например, при отказе заявки).
+        """
+        try:
+            conn = self._connect()
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
+            deleted = cursor.rowcount > 0
+            conn.commit()
+            conn.close()
+            return deleted
+        except Exception as e:
+            print(f"❌ Ошибка при удалении пользователя: {e}")
             return False
 
     def get_all_users(self) -> List[int]:

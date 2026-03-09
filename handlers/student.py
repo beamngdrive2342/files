@@ -58,7 +58,7 @@ async def display_homework_for_date(query: CallbackQuery, state: FSMContext, dat
         title = f"📚 Расписание на {date_label.lower()} ({formatted_date})"
     else:
         title = f"📚 Расписание на {formatted_date}"
-    keyboard = create_schedule_subject_buttons(date, prefix=f"stview_{date}_", back_callback="student_view", homework_dict=homework_dict)
+    keyboard = create_schedule_subject_buttons(date, prefix=f"stview_{date}_", back_callback="view_select_date", homework_dict=homework_dict)
     await safe_edit_or_answer(query.message, f"{title}\n\n✅ — задание есть\nНажмите на предмет, чтобы посмотреть ДЗ:", reply_markup=keyboard)
     await query.answer()
 

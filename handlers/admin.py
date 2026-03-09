@@ -3,7 +3,7 @@ from aiogram import Router, F
 from aiogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 
-from utils import db, db_call, schedule_add_media_group_confirmation, schedule_edit_media_group_confirmation, SUBJECTS_WITH_SOLUTIONS
+from utils import db, db_call, SUBJECTS_WITH_SOLUTIONS
 from states import AddHomeworkStates, EditHomeworkStates, DeleteHomeworkStates
 from keyboards import create_month_calendar_keyboard, create_schedule_subject_buttons, format_date_with_weekday, build_add_content_keyboard, build_edit_content_keyboard
 from config import ADMIN_ID
@@ -111,7 +111,7 @@ async def add_text_input(query: CallbackQuery, state: FSMContext):
     await query.answer()
 
 @router.message(AddHomeworkStates.waiting_for_content)
-async def process_add_content(message: Message, state: FSMContext):
+async def process_add_content(message: Message, state: FSMContext, album: list[Message] = None):
     data = await state.get_data()
     photos = data.get("photos", [])
     prompt_id = data.get("content_prompt_id")
@@ -124,11 +124,18 @@ async def process_add_content(message: Message, state: FSMContext):
         text_parts.append(message.text or "")
         await state.update_data(text_parts=text_parts, waiting_for_text=False)
         await message.answer("✅ Текст добавлен!\nПродолжайте:", reply_markup=build_add_content_keyboard())
+    elif album:
+        for msg in album:
+            if msg.photo:
+                photos.append(msg.photo[-1].file_id)
+            elif msg.document and msg.document.mime_type == "application/pdf":
+                photos.append(f"pdf:{msg.document.file_id}")
+        await state.update_data(photos=photos)
+        await message.answer(f"✅ Добавлено файлов: {len(album)}!\nПродолжайте:", reply_markup=build_add_content_keyboard())
     elif message.photo:
         photos.append(message.photo[-1].file_id)
         await state.update_data(photos=photos)
-        if message.media_group_id: schedule_add_media_group_confirmation(message)
-        else: await message.answer("✅ Фото добавлено!\nПродолжайте:", reply_markup=build_add_content_keyboard())
+        await message.answer("✅ Фото добавлено!\nПродолжайте:", reply_markup=build_add_content_keyboard())
     elif message.document and message.document.mime_type == "application/pdf":
         photos.append(f"pdf:{message.document.file_id}")
         await state.update_data(photos=photos)
@@ -267,21 +274,24 @@ async def finish_edit_hw(query: CallbackQuery, state: FSMContext):
     await state.clear()
 
 @router.message(EditHomeworkStates.waiting_for_content)
-async def process_edit_content(message: Message, state: FSMContext):
+async def process_edit_content(message: Message, state: FSMContext, album: list[Message] = None):
     if message.from_user.id != ADMIN_ID: return
     data = await state.get_data()
     if data.get("waiting_for_text"):
         await state.update_data(text=message.text or "", waiting_for_text=False)
         await message.answer("✅ Текст обновлён! Выберите дальнейшее действие:", reply_markup=build_edit_content_keyboard())
-    elif data.get("waiting_for_photo") and message.photo:
+    elif data.get("waiting_for_photo"):
         photos = data.get("photos", [])
-        photos.append(message.photo[-1].file_id)
-        if message.media_group_id:
-            await state.update_data(photos=photos, waiting_for_photo=True)
-            schedule_edit_media_group_confirmation(message, state)
-        else:
+        if album:
+            for msg in album:
+                if msg.photo:
+                    photos.append(msg.photo[-1].file_id)
             await state.update_data(photos=photos, waiting_for_photo=False)
-            await message.answer(f"✅ Фото добавлено! ({len(photos)} шт.) Выберите действие:", reply_markup=build_edit_content_keyboard())
+            await message.answer(f"✅ Добавлено фото: {len(album)}! Выберите действие:", reply_markup=build_edit_content_keyboard())
+        elif message.photo:
+            photos.append(message.photo[-1].file_id)
+            await state.update_data(photos=photos, waiting_for_photo=False)
+            await message.answer(f"✅ Фото добавлено! (Всего: {len(photos)} шт.) Выберите действие:", reply_markup=build_edit_content_keyboard())
 
 @router.callback_query(F.data == "delete_hw")
 async def start_delete_hw(query: CallbackQuery, state: FSMContext):

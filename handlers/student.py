@@ -12,6 +12,7 @@ router = Router()
 
 @router.callback_query(F.data == "student_view")
 async def student_view(query: CallbackQuery, state: FSMContext):
+    await state.update_data(schedule_back_callback=None)
     await clear_last_solution_messages(query, state)
     await clear_last_homework_photos(query, state)
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -24,14 +25,16 @@ async def student_view(query: CallbackQuery, state: FSMContext):
     await query.answer()
 
 @router.callback_query(F.data == "view_select_date")
-async def view_select_date(query: CallbackQuery):
+async def view_select_date(query: CallbackQuery, state: FSMContext):
+    await state.update_data(schedule_back_callback="view_select_date")
     today = datetime.now()
     keyboard = create_month_calendar_keyboard(today.year, today.month, "student_view")
     await query.message.edit_text("📅 Выберите дату в календаре:", reply_markup=keyboard)
     await query.answer()
 
 @router.callback_query(F.data.startswith("view_calendar_"))
-async def view_calendar_month(query: CallbackQuery):
+async def view_calendar_month(query: CallbackQuery, state: FSMContext):
+    await state.update_data(schedule_back_callback="view_select_date")
     payload = query.data.replace("view_calendar_", "", 1)
     try:
         year_str, month_str = payload.split("_", 1)
@@ -58,17 +61,21 @@ async def display_homework_for_date(query: CallbackQuery, state: FSMContext, dat
         title = f"📚 Расписание на {date_label.lower()} ({formatted_date})"
     else:
         title = f"📚 Расписание на {formatted_date}"
-    keyboard = create_schedule_subject_buttons(date, prefix=f"stview_{date}_", back_callback="view_select_date", homework_dict=homework_dict)
+    data = await state.get_data()
+    back_cb = data.get("schedule_back_callback") or "student_view"
+    keyboard = create_schedule_subject_buttons(date, prefix=f"stview_{date}_", back_callback=back_cb, homework_dict=homework_dict)
     await safe_edit_or_answer(query.message, f"{title}\n\n✅ — задание есть\nНажмите на предмет, чтобы посмотреть ДЗ:", reply_markup=keyboard)
     await query.answer()
 
 @router.callback_query(F.data == "view_today")
 async def view_today_homework(query: CallbackQuery, state: FSMContext):
+    await state.update_data(schedule_back_callback="student_view")
     today = datetime.now().strftime("%d.%m.%Y")
     await display_homework_for_date(query, state, today, "Сегодня")
 
 @router.callback_query(F.data == "view_tomorrow")
 async def view_tomorrow_homework(query: CallbackQuery, state: FSMContext):
+    await state.update_data(schedule_back_callback="student_view")
     tomorrow = (datetime.now() + timedelta(days=1)).strftime("%d.%m.%Y")
     await display_homework_for_date(query, state, tomorrow, "Завтра")
 

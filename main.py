@@ -8,7 +8,7 @@ import logging
 from aiogram import Dispatcher, Bot
 from aiogram.types import BotCommand
 from config import BOT_TOKEN, DEBUG_MODE, ADMIN_PASSWORD
-from handlers import router
+from handlers import base_router, admin_router, student_router, solutions_router
 
 # ==================== КОНФИГУРАЦИЯ ЛОГИРОВАНИЯ ====================
 logging.basicConfig(
@@ -65,7 +65,10 @@ async def main():
     dp = Dispatcher()
 
     # Подключаем маршрутизатор с обработчиками
-    dp.include_router(router)
+    dp.include_router(base_router)
+    dp.include_router(admin_router)
+    dp.include_router(student_router)
+    dp.include_router(solutions_router)
 
     # Запускаем действия при старте
     await on_startup(bot)

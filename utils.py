@@ -63,12 +63,12 @@ async def clear_last_homework_photos(query: CallbackQuery, state: FSMContext):
     message_ids = data.get("last_homework_message_ids", []) or data.get("last_homework_photo_ids", [])
     if not message_ids:
         return
-    await delete_messages_batch(
+    asyncio.create_task(delete_messages_batch(
         bot=query.bot,
         chat_id=query.message.chat.id,
         message_ids=message_ids,
         error_prefix="Не удалось удалить сообщение ДЗ"
-    )
+    ))
     await state.update_data(last_homework_message_ids=[], last_homework_photo_ids=[])
 
 async def clear_last_solution_messages(query: CallbackQuery, state: FSMContext):
@@ -84,12 +84,12 @@ async def clear_last_solution_messages(query: CallbackQuery, state: FSMContext):
 
     if not solution_message_ids:
         return
-    await delete_messages_batch(
+    asyncio.create_task(delete_messages_batch(
         bot=query.bot,
         chat_id=query.message.chat.id,
         message_ids=solution_message_ids,
         error_prefix="Не удалось удалить сообщение решения"
-    )
+    ))
     await state.update_data(
         last_solution_message_ids=[],
         solution_prompt_message_id=None,

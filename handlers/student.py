@@ -13,8 +13,8 @@ router = Router()
 @router.callback_query(F.data == "student_view")
 async def student_view(query: CallbackQuery, state: FSMContext):
     await state.update_data(schedule_back_callback=None)
-    await clear_last_solution_messages(query, state)
-    await clear_last_homework_photos(query, state)
+    await clear_last_solution_messages(query, state, exclude_id=query.message.message_id)
+    await clear_last_homework_photos(query, state, exclude_id=query.message.message_id)
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📅 На сегодня", callback_data="view_today")],
         [InlineKeyboardButton(text="📅 На завтра", callback_data="view_tomorrow")],
@@ -52,8 +52,8 @@ async def display_homework_for_date(query: CallbackQuery, state: FSMContext, dat
     if weekday is not None and weekday >= 5:
         await query.answer("😴 В этот день уроков нет!", show_alert=True)
         return
-    await clear_last_solution_messages(query, state)
-    await clear_last_homework_photos(query, state)
+    await clear_last_solution_messages(query, state, exclude_id=query.message.message_id)
+    await clear_last_homework_photos(query, state, exclude_id=query.message.message_id)
     homework_dict = await db_call(db.get_homework_by_date, date)
     formatted_date = format_date_with_weekday(date, mark_today=True)
     await state.update_data(current_view_date=date)
@@ -107,14 +107,32 @@ async def view_subject_from_schedule(query: CallbackQuery, state: FSMContext):
     if photos:
         header_msg = await safe_edit_or_answer(query.message, f"📚 {subject}\n📅 {format_date_with_weekday(date, mark_today=True)}")
         if header_msg: photo_message_ids.append(header_msg.message_id)
+
+        from aiogram.utils.media_group import MediaGroupBuilder
+        photo_group = MediaGroupBuilder()
+        doc_group = MediaGroupBuilder()
+        has_photos, has_docs = False, False
+
         for photo_id in photos:
+            if isinstance(photo_id, str) and photo_id.startswith("pdf:"):
+                doc_group.add_document(media=photo_id[4:])
+                has_docs = True
+            else:
+                photo_group.add_photo(media=photo_id)
+                has_photos = True
+
+        if has_photos:
             try:
-                if isinstance(photo_id, str) and photo_id.startswith("pdf:"):
-                    sent_message = await query.message.answer_document(photo_id[4:])
-                else:
-                    sent_message = await query.message.answer_photo(photo_id)
-                photo_message_ids.append(sent_message.message_id)
+                msgs = await query.bot.send_media_group(chat_id=query.message.chat.id, media=photo_group.build())
+                photo_message_ids.extend(m.message_id for m in msgs)
             except Exception: pass
+
+        if has_docs:
+            try:
+                msgs = await query.bot.send_media_group(chat_id=query.message.chat.id, media=doc_group.build())
+                photo_message_ids.extend(m.message_id for m in msgs)
+            except Exception: pass
+
         bottom_msg = await query.message.answer(f"📝 {text}", reply_markup=keyboard)
         photo_message_ids.append(bottom_msg.message_id)
     else:
@@ -145,14 +163,32 @@ async def view_homework(query: CallbackQuery, state: FSMContext):
     if photos:
         header_msg = await safe_edit_or_answer(query.message, f"📚 {subject}\n📅 {format_date_with_weekday(date, mark_today=True)}")
         if header_msg: photo_message_ids.append(header_msg.message_id)
+
+        from aiogram.utils.media_group import MediaGroupBuilder
+        photo_group = MediaGroupBuilder()
+        doc_group = MediaGroupBuilder()
+        has_photos, has_docs = False, False
+
         for photo_id in photos:
+            if isinstance(photo_id, str) and photo_id.startswith("pdf:"):
+                doc_group.add_document(media=photo_id[4:])
+                has_docs = True
+            else:
+                photo_group.add_photo(media=photo_id)
+                has_photos = True
+
+        if has_photos:
             try:
-                if isinstance(photo_id, str) and photo_id.startswith("pdf:"):
-                    sent_message = await query.message.answer_document(photo_id[4:])
-                else:
-                    sent_message = await query.message.answer_photo(photo_id)
-                photo_message_ids.append(sent_message.message_id)
+                msgs = await query.bot.send_media_group(chat_id=query.message.chat.id, media=photo_group.build())
+                photo_message_ids.extend(m.message_id for m in msgs)
             except Exception: pass
+
+        if has_docs:
+            try:
+                msgs = await query.bot.send_media_group(chat_id=query.message.chat.id, media=doc_group.build())
+                photo_message_ids.extend(m.message_id for m in msgs)
+            except Exception: pass
+
         bottom_msg = await query.message.answer(f"📝 {text}", reply_markup=keyboard)
         photo_message_ids.append(bottom_msg.message_id)
     else:

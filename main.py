@@ -64,6 +64,10 @@ async def main():
     bot = Bot(token=bot_token)
     dp = Dispatcher()
 
+    # Подключаем AlbumMiddleware
+    from middleware import AlbumMiddleware
+    dp.message.middleware(AlbumMiddleware())
+
     # Подключаем маршрутизатор с обработчиками
     dp.include_router(base_router)
     dp.include_router(admin_router)

@@ -123,15 +123,20 @@ async def handle_solution_number(message: Message, state: FSMContext):
         [InlineKeyboardButton(text="◀️ Назад", callback_data="solution_back")],
     ])
 
-    for idx, img_path in enumerate(image_files):
-        try:
-            sent_message = await message.answer_photo(
-                FSInputFile(str(img_path)),
-                reply_markup=back_keyboard if idx == len(image_files) - 1 else None
-            )
-            solution_message_ids.append(sent_message.message_id)
-        except Exception as e:
-            print(f"❌ Ошибка при отправке фото {img_path}: {e}")
+    from aiogram.utils.media_group import MediaGroupBuilder
+    photo_group = MediaGroupBuilder()
+    
+    for img_path in image_files:
+        photo_group.add_photo(media=FSInputFile(str(img_path)))
+
+    try:
+        msgs = await message.bot.send_media_group(chat_id=message.chat.id, media=photo_group.build())
+        solution_message_ids.extend(m.message_id for m in msgs)
+    except Exception as e:
+        print(f"❌ Ошибка отправки решения: {e}")
+
+    back_msg = await message.answer("👆 Нажмите кнопку ниже, чтобы вернуться", reply_markup=back_keyboard)
+    solution_message_ids.append(back_msg.message_id)
 
     await state.update_data(
         last_solution_message_ids=solution_message_ids,

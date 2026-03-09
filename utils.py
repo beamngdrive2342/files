@@ -97,50 +97,6 @@ async def clear_last_solution_messages(query: CallbackQuery, state: FSMContext):
         solution_user_task_message_id=None
     )
 
-_pending_add_media_groups: dict[str, asyncio.Task] = {}
-_pending_edit_media_groups: dict[str, asyncio.Task] = {}
-
-def _media_group_task_key(message: Message) -> str:
-    return f"{message.chat.id}:{message.media_group_id}"
-
-def schedule_add_media_group_confirmation(message: Message):
-    from keyboards import build_add_content_keyboard
-    if not message.media_group_id: return
-    key = _media_group_task_key(message)
-    task = _pending_add_media_groups.get(key)
-    if task: task.cancel()
-    async def _send_confirmation():
-        try:
-            await asyncio.sleep(MEDIA_GROUP_DEBOUNCE_SEC)
-            await message.answer("✅ Фото добавлено!\nПродолжайте:", reply_markup=build_add_content_keyboard())
-        except asyncio.CancelledError:
-            return
-        finally:
-            _pending_add_media_groups.pop(key, None)
-    _pending_add_media_groups[key] = asyncio.create_task(_send_confirmation())
-
-def schedule_edit_media_group_confirmation(message: Message, state: FSMContext):
-    from keyboards import build_edit_content_keyboard
-    if not message.media_group_id: return
-    key = _media_group_task_key(message)
-    task = _pending_edit_media_groups.get(key)
-    if task: task.cancel()
-    async def _send_confirmation():
-        try:
-            await asyncio.sleep(MEDIA_GROUP_DEBOUNCE_SEC)
-            data = await state.get_data()
-            photos = data.get("photos", [])
-            await state.update_data(waiting_for_photo=False)
-            await message.answer(
-                f"✅ Фото добавлено! ({len(photos)} шт.) Выберите действие:",
-                reply_markup=build_edit_content_keyboard(),
-            )
-        except asyncio.CancelledError:
-            return
-        finally:
-            _pending_edit_media_groups.pop(key, None)
-    _pending_edit_media_groups[key] = asyncio.create_task(_send_confirmation())
-
 async def send_notifications_to_users(bot: Bot, date: str, subject: str):
     from keyboards import format_date_with_weekday
     users = await db_call(db.get_all_users)

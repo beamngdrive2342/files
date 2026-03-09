@@ -58,9 +58,11 @@ async def delete_messages_batch(bot: Bot, chat_id: int, message_ids: list[int], 
                 print(f"❌ {error_prefix} {message_id}: {e}")
     await asyncio.gather(*(_delete(mid) for mid in unique_ids), return_exceptions=True)
 
-async def clear_last_homework_photos(query: CallbackQuery, state: FSMContext):
+async def clear_last_homework_photos(query: CallbackQuery, state: FSMContext, exclude_id: int = None):
     data = await state.get_data()
     message_ids = data.get("last_homework_message_ids", []) or data.get("last_homework_photo_ids", [])
+    if exclude_id and exclude_id in message_ids:
+        message_ids = [mid for mid in message_ids if mid != exclude_id]
     if not message_ids:
         return
     asyncio.create_task(delete_messages_batch(
@@ -71,7 +73,7 @@ async def clear_last_homework_photos(query: CallbackQuery, state: FSMContext):
     ))
     await state.update_data(last_homework_message_ids=[], last_homework_photo_ids=[])
 
-async def clear_last_solution_messages(query: CallbackQuery, state: FSMContext):
+async def clear_last_solution_messages(query: CallbackQuery, state: FSMContext, exclude_id: int = None):
     data = await state.get_data()
     solution_message_ids = list(data.get("last_solution_message_ids", []))
     prompt_message_id = data.get("solution_prompt_message_id")
@@ -81,6 +83,9 @@ async def clear_last_solution_messages(query: CallbackQuery, state: FSMContext):
     if prompt_message_id: solution_message_ids.append(prompt_message_id)
     if cancel_message_id: solution_message_ids.append(cancel_message_id)
     if user_task_message_id: solution_message_ids.append(user_task_message_id)
+
+    if exclude_id and exclude_id in solution_message_ids:
+        solution_message_ids = [mid for mid in solution_message_ids if mid != exclude_id]
 
     if not solution_message_ids:
         return

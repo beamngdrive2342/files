@@ -65,8 +65,10 @@ async def main():
     dp = Dispatcher()
 
     # Подключаем AlbumMiddleware
-    from middleware import AlbumMiddleware
+    from middleware import AlbumMiddleware, ActivityMiddleware
     dp.message.middleware(AlbumMiddleware())
+    dp.message.middleware(ActivityMiddleware())
+    dp.callback_query.middleware(ActivityMiddleware())
 
     # Подключаем маршрутизатор с обработчиками
     dp.include_router(base_router)

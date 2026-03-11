@@ -117,14 +117,6 @@ class Database:
             cursor.execute("ALTER TABLE users ADD COLUMN is_approved INTEGER NOT NULL DEFAULT 1")
             logger.info("✅ Колонка is_approved добавлена.")
 
-        # Миграция: добавляем колонку last_active_at для отслеживания онлайна
-        try:
-            cursor.execute("SELECT last_active_at FROM users LIMIT 1")
-        except sqlite3.OperationalError:
-            logger.info("🔄 Миграция БД: добавляю колонку last_active_at...")
-            cursor.execute("ALTER TABLE users ADD COLUMN last_active_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
-            logger.info("✅ Колонка last_active_at добавлена.")
-
         # Таблица для хранения пожеланий учеников
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS feedback (
@@ -517,12 +509,8 @@ class Database:
             cursor = conn.cursor()
 
             cursor.execute("""
-                INSERT INTO users (user_id, username, first_name, is_approved, last_active_at)
-                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-                ON CONFLICT(user_id) DO UPDATE SET
-                    username = excluded.username,
-                    first_name = excluded.first_name,
-                    last_active_at = CURRENT_TIMESTAMP
+                INSERT OR IGNORE INTO users (user_id, username, first_name, is_approved)
+                VALUES (?, ?, ?, ?)
             """, (user_id, username, first_name, is_approved))
 
             conn.commit()
@@ -532,45 +520,6 @@ class Database:
         except Exception as e:
             print(f"❌ Ошибка при регистрации пользователя: {e}")
             return False
-
-    def update_user_activity(self, user_id: int) -> bool:
-        """
-        Обновление времени последней активности пользователя.
-        """
-        try:
-            conn = self._connect()
-            cursor = conn.cursor()
-            cursor.execute("UPDATE users SET last_active_at = CURRENT_TIMESTAMP WHERE user_id = ?", (user_id,))
-            updated = cursor.rowcount > 0
-            conn.commit()
-            conn.close()
-            return updated
-        except Exception as e:
-            print(f"❌ Ошибка обновления активности: {e}")
-            return False
-
-    def get_user_activity_stats(self, limit: int = 30) -> list:
-        """
-        Получение списка пользователей, отсортированного по последней активности.
-        
-        Returns:
-            Список кортежей (user_id, username, first_name, last_active_at)
-        """
-        try:
-            conn = self._connect()
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT user_id, username, first_name, last_active_at 
-                FROM users 
-                ORDER BY last_active_at DESC 
-                LIMIT ?
-            """, (limit,))
-            rows = cursor.fetchall()
-            conn.close()
-            return rows
-        except Exception as e:
-            print(f"❌ Ошибка при получении статистики активности: {e}")
-            return []
 
     def is_user_approved(self, user_id: int) -> bool:
         """

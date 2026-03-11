@@ -64,13 +64,8 @@ async def main():
     bot = Bot(token=bot_token)
     dp = Dispatcher()
 
-    # Подключаем AlbumMiddleware и UserActivityMiddleware
-    from middleware import AlbumMiddleware, UserActivityMiddleware
-    
-    activity_middleware = UserActivityMiddleware()
-    dp.message.outer_middleware(activity_middleware)
-    dp.callback_query.outer_middleware(activity_middleware)
-    
+    # Подключаем AlbumMiddleware
+    from middleware import AlbumMiddleware
     dp.message.middleware(AlbumMiddleware())
 
     # Подключаем маршрутизатор с обработчиками

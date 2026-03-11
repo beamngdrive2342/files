@@ -592,6 +592,29 @@ class Database:
             print(f"❌ Ошибка при получении пользователей: {e}")
             return []
 
+    def get_users_info(self) -> List[Tuple[int, str, str, str, int]]:
+        """
+        Получение подробного списка пользователей
+        """
+        try:
+            conn = self._connect()
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                SELECT user_id, username, first_name, registered_at, is_approved 
+                FROM users 
+                ORDER BY registered_at DESC
+            """)
+
+            results = cursor.fetchall()
+            conn.close()
+
+            return results
+
+        except Exception as e:
+            print(f"❌ Ошибка при получении списка пользователей: {e}")
+            return []
+
     def user_exists(self, user_id: int) -> bool:
         """
         Проверка существования пользователя

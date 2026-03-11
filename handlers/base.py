@@ -232,6 +232,7 @@ async def handle_password_input(message: Message, state: FSMContext):
             [InlineKeyboardButton(text="🗑 Удалить", callback_data="delete_hw")],
             [InlineKeyboardButton(text="📋 Все ДЗ", callback_data="view_all_hw")],
             [InlineKeyboardButton(text=fb_label, callback_data="view_feedbacks")],
+            [InlineKeyboardButton(text="👥 Пользователи", callback_data="view_users")],
             [InlineKeyboardButton(text="◀️ Выход в меню", callback_data="back_to_menu")],
         ])
         await message.answer("✅ Добро пожаловать, администратор!\n\nВыберите действие:", reply_markup=keyboard)

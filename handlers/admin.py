@@ -24,6 +24,7 @@ async def show_admin_panel(query: CallbackQuery, state: FSMContext):
         [InlineKeyboardButton(text="🗑 Удалить", callback_data="delete_hw")],
         [InlineKeyboardButton(text="📋 Все ДЗ", callback_data="view_all_hw")],
         [InlineKeyboardButton(text=fb_label, callback_data="view_feedbacks")],
+        [InlineKeyboardButton(text="👥 Пользователи", callback_data="view_users")],
         [InlineKeyboardButton(text="◀️ Выход в меню", callback_data="back_to_menu")],
     ])
     await query.message.edit_text("✅ Админ панель\n\nВыберите действие:", reply_markup=keyboard)
@@ -395,3 +396,39 @@ async def delete_feedback_item(query: CallbackQuery):
     await db_call(db.delete_feedback, fb_id)
     await query.answer("✅ Пожелание удалено")
     await view_feedbacks(query)
+
+@router.callback_query(F.data == "view_users")
+async def view_users(query: CallbackQuery, state: FSMContext):
+    if query.from_user.id != ADMIN_ID:
+        return
+    
+    users = await db_call(db.get_users_info)
+    
+    if not users:
+        await query.message.edit_text(
+            "👥 Нет зарегистрированных пользователей.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="◀️ Назад", callback_data="admin_panel")]
+            ])
+        )
+        await query.answer()
+        return
+    
+    text = f"👥 <b>Пользователи бота ({len(users)})</b>:\n\n"
+    for idx, (uid, uname, fname, reg_at, approved) in enumerate(users, 1):
+        status = "✅" if approved else "⏳"
+        name = fname or "Без имени"
+        uname_str = f" (@{uname})" if uname else ""
+        date_str = str(reg_at).split(" ")[0][:10] if reg_at else "?"
+        line = f"{idx}. {status} <b>{name}</b>{uname_str}\n   🆔 <code>{uid}</code> | 📅 {date_str}\n\n"
+        
+        if len(text) + len(line) > 3800:
+            text += f"... и ещё {len(users) - idx + 1} чел.\n"
+            break
+        text += line
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="◀️ Назад в админ панель", callback_data="admin_panel")]
+    ])
+    await query.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
+    await query.answer()

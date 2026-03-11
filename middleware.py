@@ -37,3 +37,27 @@ class AlbumMiddleware(BaseMiddleware):
             # The event passed is the first message in the album,
             # Handler will process the entire album using data['album']
             return await handler(event, data)
+
+class ActivityMiddleware(BaseMiddleware):
+    async def __call__(
+        self,
+        handler: Callable[[TelegramObject, Dict[str, Any]], Awaitable[Any]],
+        event: TelegramObject,
+        data: Dict[str, Any],
+    ) -> Any:
+        try:
+            from aiogram.types import CallbackQuery
+            user_id = None
+            if isinstance(event, Message):
+                user_id = event.from_user.id
+            elif isinstance(event, CallbackQuery):
+                user_id = event.from_user.id
+                
+            if user_id:
+                from utils import db, db_call
+                asyncio.create_task(db_call(db.update_user_activity, user_id))
+        except Exception:
+            pass
+            
+        return await handler(event, data)
+

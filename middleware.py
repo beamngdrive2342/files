@@ -2,32 +2,7 @@ import asyncio
 from typing import Any, Awaitable, Callable, Dict, List, Union
 
 from aiogram import BaseMiddleware
-from aiogram.types import Message, CallbackQuery, TelegramObject
-from aiogram.fsm.context import FSMContext
-from database import Database
-
-db = Database()
-
-class UserActivityMiddleware(BaseMiddleware):
-    async def __call__(
-        self,
-        handler: Callable[[TelegramObject, Dict[str, Any]], Awaitable[Any]],
-        event: TelegramObject,
-        data: Dict[str, Any],
-    ) -> Any:
-        user = None
-        if isinstance(event, Message):
-            user = event.from_user
-        elif isinstance(event, CallbackQuery):
-            user = event.from_user
-            
-        if user:
-            # Обновляем активность асинхронно, чтобы не тормозить хендлеры
-            import asyncio
-            from utils import db_call
-            asyncio.create_task(db_call(db.update_user_activity, user.id))
-            
-        return await handler(event, data)
+from aiogram.types import Message, TelegramObject
 
 class AlbumMiddleware(BaseMiddleware):
     def __init__(self, latency: Union[int, float] = 0.5):

@@ -117,14 +117,6 @@ class Database:
             cursor.execute("ALTER TABLE users ADD COLUMN is_approved INTEGER NOT NULL DEFAULT 1")
             logger.info("✅ Колонка is_approved добавлена.")
 
-        # Миграция: добавляем колонку last_active_at для трекинга активности
-        try:
-            cursor.execute("SELECT last_active_at FROM users LIMIT 1")
-        except sqlite3.OperationalError:
-            logger.info("🔄 Миграция БД: добавляю колонку last_active_at...")
-            cursor.execute("ALTER TABLE users ADD COLUMN last_active_at TIMESTAMP")
-            logger.info("✅ Колонка last_active_at добавлена.")
-
         # Таблица для хранения пожеланий учеников
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS feedback (
@@ -529,19 +521,6 @@ class Database:
             print(f"❌ Ошибка при регистрации пользователя: {e}")
             return False
 
-    def update_user_activity(self, user_id: int) -> bool:
-        """Обновляет время последней активности пользователя."""
-        try:
-            conn = self._connect()
-            cursor = conn.cursor()
-            cursor.execute("UPDATE users SET last_active_at = CURRENT_TIMESTAMP WHERE user_id = ?", (user_id,))
-            updated = cursor.rowcount > 0
-            conn.commit()
-            conn.close()
-            return updated
-        except Exception:
-            return False
-
     def is_user_approved(self, user_id: int) -> bool:
         """
         Проверка, одобрен ли пользователь.
@@ -613,7 +592,7 @@ class Database:
             print(f"❌ Ошибка при получении пользователей: {e}")
             return []
 
-    def get_users_info(self) -> List[Tuple[int, str, str, str, int, str]]:
+    def get_users_info(self) -> List[Tuple[int, str, str, str, int]]:
         """
         Получение подробного списка пользователей
         """
@@ -622,9 +601,9 @@ class Database:
             cursor = conn.cursor()
 
             cursor.execute("""
-                SELECT user_id, username, first_name, registered_at, is_approved, last_active_at 
+                SELECT user_id, username, first_name, registered_at, is_approved 
                 FROM users 
-                ORDER BY COALESCE(last_active_at, registered_at) DESC
+                ORDER BY registered_at DESC
             """)
 
             results = cursor.fetchall()

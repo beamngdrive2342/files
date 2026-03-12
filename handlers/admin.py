@@ -415,15 +415,12 @@ async def view_users(query: CallbackQuery, state: FSMContext):
         return
     
     text = f"👥 <b>Пользователи бота ({len(users)})</b>:\n\n"
-    for idx, (uid, uname, fname, reg_at, approved, last_active_at) in enumerate(users, 1):
+    for idx, (uid, uname, fname, reg_at, approved) in enumerate(users, 1):
         status = "✅" if approved else "⏳"
         name = fname or "Без имени"
         uname_str = f" (@{uname})" if uname else ""
         date_str = str(reg_at).split(" ")[0][:10] if reg_at else "?"
-        
-        active_str = str(last_active_at)[:16] if last_active_at else "Неизвестно"
-        
-        line = f"{idx}. {status} <b>{name}</b>{uname_str}\n   🆔 <code>{uid}</code> | 🟢 {active_str}\n\n"
+        line = f"{idx}. {status} <b>{name}</b>{uname_str}\n   🆔 <code>{uid}</code> | 📅 {date_str}\n\n"
         
         if len(text) + len(line) > 3800:
             text += f"... и ещё {len(users) - idx + 1} чел.\n"

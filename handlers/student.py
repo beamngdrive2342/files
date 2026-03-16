@@ -210,6 +210,7 @@ async def cancel_feedback(query: CallbackQuery, state: FSMContext):
     kb_buttons = [
         [InlineKeyboardButton(text="📚 Мои ДЗ", callback_data="student_view")],
         [InlineKeyboardButton(text="💌 Пожелания и идеи", callback_data="show_feedback")],
+        [InlineKeyboardButton(text="🆘 Нашли ошибку?", callback_data="report_error")],
         [InlineKeyboardButton(text="🕵️ Я только зашёл, что делать?", callback_data="show_instructions")],
     ]
     if query.from_user.id == ADMIN_ID:

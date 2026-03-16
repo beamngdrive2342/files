@@ -49,14 +49,12 @@ async def cmd_start(message: Message):
             [InlineKeyboardButton(text="👑 Админ панель", callback_data="admin_auth")],
             [InlineKeyboardButton(text="📚 Мои ДЗ", callback_data="student_view")],
             [InlineKeyboardButton(text="💌 Пожелания и идеи", callback_data="show_feedback")],
-            [InlineKeyboardButton(text="🆘 Нашли ошибку?", callback_data="report_error")],
             [InlineKeyboardButton(text="🕵️ Я только зашёл, что делать?", callback_data="show_instructions")],
         ])
     else:
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📚 Мои ДЗ", callback_data="student_view")],
             [InlineKeyboardButton(text="💌 Пожелания и идеи", callback_data="show_feedback")],
-            [InlineKeyboardButton(text="🆘 Нашли ошибку?", callback_data="report_error")],
             [InlineKeyboardButton(text="🕵️ Я только зашёл, что делать?", callback_data="show_instructions")],
         ])
 
@@ -201,7 +199,6 @@ async def cancel_password_input(query: CallbackQuery, state: FSMContext):
         [InlineKeyboardButton(text="👑 Админ панель", callback_data="admin_auth")],
         [InlineKeyboardButton(text="📚 Мои ДЗ", callback_data="student_view")],
         [InlineKeyboardButton(text="💌 Пожелания и идеи", callback_data="show_feedback")],
-        [InlineKeyboardButton(text="🆘 Нашли ошибку?", callback_data="report_error")],
         [InlineKeyboardButton(text="🕵️ Я только зашёл, что делать?", callback_data="show_instructions")],
     ])
     await query.message.edit_text("👋 Главное меню\n\nВыбери действие:", reply_markup=keyboard)
@@ -279,23 +276,6 @@ async def show_instructions(query: CallbackQuery):
     await safe_edit_or_answer(query.message, instruction_text, reply_markup=keyboard, parse_mode="HTML")
     await query.answer()
 
-@router.callback_query(F.data == "report_error")
-async def report_error(query: CallbackQuery):
-    error_text = (
-        "🆘 <b>Нашли ошибку?</b>\n\n"
-        "Если вы заметили опечатку в задании, неправильную дату или бот работает некорректно — пожалуйста, сообщите об этом!\n\n"
-        "🔧 <b>Что делать:</b>\n"
-        "1. Перейдите в раздел <b>«💌 Пожелания и идеи»</b> и опишите проблему.\n"
-        "2. Ваше сообщение сразу поступит администратору для исправления.\n\n"
-        "Спасибо, что помогаете делать бот лучше! 🙌"
-    )
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💌 Написать об ошибке", callback_data="show_feedback")],
-        [InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_menu")],
-    ])
-    await safe_edit_or_answer(query.message, error_text, reply_markup=keyboard, parse_mode="HTML")
-    await query.answer()
-
 @router.callback_query(F.data == "back_to_menu")
 async def back_to_menu(query: CallbackQuery, state: FSMContext):
     await clear_last_solution_messages(query, state, exclude_id=query.message.message_id)
@@ -307,14 +287,12 @@ async def back_to_menu(query: CallbackQuery, state: FSMContext):
             [InlineKeyboardButton(text="👑 Админ панель", callback_data="admin_auth")],
             [InlineKeyboardButton(text="📚 Мои ДЗ", callback_data="student_view")],
             [InlineKeyboardButton(text="💌 Пожелания и идеи", callback_data="show_feedback")],
-            [InlineKeyboardButton(text="🆘 Нашли ошибку?", callback_data="report_error")],
             [InlineKeyboardButton(text="🕵️ Я только зашёл, что делать?", callback_data="show_instructions")],
         ])
     else:
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📚 Мои ДЗ", callback_data="student_view")],
             [InlineKeyboardButton(text="💌 Пожелания и идеи", callback_data="show_feedback")],
-            [InlineKeyboardButton(text="🆘 Нашли ошибку?", callback_data="report_error")],
             [InlineKeyboardButton(text="🕵️ Я только зашёл, что делать?", callback_data="show_instructions")],
         ])
     await safe_edit_or_answer(query.message, "👋 Главное меню\n\nВыбери действие:", reply_markup=keyboard)

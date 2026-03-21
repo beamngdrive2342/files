@@ -15,6 +15,7 @@ async def show_admin_panel(query: CallbackQuery, state: FSMContext):
     if query.from_user.id != ADMIN_ID:
         await query.answer("❌ У вас нет доступа!", show_alert=True)
         return
+    await query.answer()
     await state.clear()
     feedback_count = await db_call(db.get_feedback_count)
     fb_label = f"💌 Пожелания учеников" + (f" ({feedback_count}) 🔴" if feedback_count > 0 else "")
@@ -28,15 +29,14 @@ async def show_admin_panel(query: CallbackQuery, state: FSMContext):
         [InlineKeyboardButton(text="◀️ Выход в меню", callback_data="back_to_menu")],
     ])
     await query.message.edit_text("✅ Админ панель\n\nВыберите действие:", reply_markup=keyboard)
-    await query.answer()
 
 @router.callback_query(F.data == "add_hw")
 async def start_add_hw(query: CallbackQuery, state: FSMContext):
+    await query.answer()
     await state.set_state(AddHomeworkStates.waiting_for_date)
     today = datetime.now()
     keyboard = create_month_calendar_keyboard(today.year, today.month, "admin_panel", "add_date_", "add_calendar_")
     await query.message.edit_text("📅 Выберите дату в календаре:", reply_markup=keyboard)
-    await query.answer()
 
 @router.callback_query(F.data.startswith("add_calendar_"), AddHomeworkStates.waiting_for_date)
 async def add_calendar_month(query: CallbackQuery):
@@ -47,7 +47,6 @@ async def add_calendar_month(query: CallbackQuery):
     except Exception: return await query.answer("❌ Ошибка календаря", show_alert=True)
     keyboard = create_month_calendar_keyboard(year, month, "admin_panel", "add_date_", "add_calendar_")
     await query.message.edit_text("📅 Выберите дату в календаре:", reply_markup=keyboard)
-    await query.answer()
 
 @router.callback_query(F.data.startswith("add_date_"), AddHomeworkStates.waiting_for_date)
 async def add_select_date(query: CallbackQuery, state: FSMContext):
@@ -57,7 +56,6 @@ async def add_select_date(query: CallbackQuery, state: FSMContext):
     homework_dict = await db_call(db.get_homework_by_date, date)
     keyboard = create_schedule_subject_buttons(date, "add_subject_", "add_hw", homework_dict=homework_dict)
     await query.message.edit_text(f"📚 Выберите предмет для даты {format_date_with_weekday(date)}:", reply_markup=keyboard)
-    await query.answer()
 
 @router.callback_query(F.data.startswith("add_subject_"), AddHomeworkStates.waiting_for_subject)
 async def add_select_subject(query: CallbackQuery, state: FSMContext):
@@ -80,7 +78,6 @@ async def add_select_subject(query: CallbackQuery, state: FSMContext):
     await state.update_data(is_textbook=False)
     await state.set_state(AddHomeworkStates.waiting_for_content)
     await query.message.edit_text(f"📝 Добавление ДЗ:\nДата: {format_date_with_weekday(date)}\nПредмет: {subject}\n\nДобавляйте текст, фото и PDF в любом порядке:", reply_markup=build_add_content_keyboard())
-    await query.answer()
 
 @router.callback_query(F.data == "add_back_to_subject_from_source", AddHomeworkStates.waiting_for_source_type)
 async def add_back_to_subject_from_source(query: CallbackQuery, state: FSMContext):
@@ -92,7 +89,6 @@ async def add_back_to_subject_from_source(query: CallbackQuery, state: FSMContex
     homework_dict = await db_call(db.get_homework_by_date, date)
     keyboard = create_schedule_subject_buttons(date, "add_subject_", "add_hw", homework_dict=homework_dict)
     await query.message.edit_text(f"📚 Выберите предмет для даты {format_date_with_weekday(date)}:", reply_markup=keyboard)
-    await query.answer()
 
 @router.callback_query(F.data.startswith("add_source_"), AddHomeworkStates.waiting_for_source_type)
 async def add_select_source_type(query: CallbackQuery, state: FSMContext):
@@ -103,13 +99,11 @@ async def add_select_source_type(query: CallbackQuery, state: FSMContext):
     await state.set_state(AddHomeworkStates.waiting_for_content)
     source_label = "📘 из учебника" if is_textbook else "📝 другое"
     await query.message.edit_text(f"📝 Добавление ДЗ:\nДата: {format_date_with_weekday(date)}\nПредмет: {subject} ({source_label})\n\nДобавляйте текст, фото и PDF в любом порядке:", reply_markup=build_add_content_keyboard())
-    await query.answer()
 
 @router.callback_query(F.data == "add_text", AddHomeworkStates.waiting_for_content)
 async def add_text_input(query: CallbackQuery, state: FSMContext):
     await state.update_data(waiting_for_text=True)
     await query.message.edit_text("✍️ Отправьте текст задания:")
-    await query.answer()
 
 @router.message(AddHomeworkStates.waiting_for_content)
 async def process_add_content(message: Message, state: FSMContext, album: list[Message] = None):
@@ -411,7 +405,6 @@ async def view_users(query: CallbackQuery, state: FSMContext):
                 [InlineKeyboardButton(text="◀️ Назад", callback_data="admin_panel")]
             ])
         )
-        await query.answer()
         return
     
     text = f"👥 <b>Пользователи бота ({len(users)})</b>:\n\n"
@@ -431,4 +424,3 @@ async def view_users(query: CallbackQuery, state: FSMContext):
         [InlineKeyboardButton(text="◀️ Назад в админ панель", callback_data="admin_panel")]
     ])
     await query.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
-    await query.answer()

@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from aiogram import Router, F
 from aiogram.filters import Command
@@ -15,15 +16,7 @@ router = Router()
 @router.message(Command("start"))
 async def cmd_start(message: Message):
     user_id = message.from_user.id
-    if user_id == ADMIN_ID:
-        await db_call(
-            db.register_user,
-            user_id=user_id,
-            username=message.from_user.username,
-            first_name=message.from_user.first_name,
-            is_approved=1
-        )
-    else:
+    if user_id != ADMIN_ID:
         is_approved = await db_call(db.is_user_approved, user_id)
         if not is_approved:
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -36,13 +29,14 @@ async def cmd_start(message: Message):
             )
             return
 
-    await db_call(
+    # Регистрируем один раз (убрали дублирование)
+    asyncio.create_task(db_call(
         db.register_user,
         user_id=user_id,
         username=message.from_user.username,
         first_name=message.from_user.first_name,
         is_approved=1
-    )
+    ))
     
     if message.from_user.id == ADMIN_ID:
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -82,6 +76,7 @@ async def cmd_help(message: Message):
 
 @router.callback_query(F.data == "apply_for_access")
 async def apply_for_access(query: CallbackQuery):
+    await query.answer()
     user_id = query.from_user.id
     username = query.from_user.username
     first_name = query.from_user.first_name
@@ -122,7 +117,6 @@ async def apply_for_access(query: CallbackQuery):
         "✅ Твоя заявка отправлена администратору!\n"
         "Ожидай одобрения. После этого мы пришлём тебе уведомление."
     )
-    await query.answer()
 
 @router.callback_query(F.data.startswith("approve_"))
 async def approve_user_callback(query: CallbackQuery):
@@ -179,6 +173,7 @@ async def admin_auth(query: CallbackQuery, state: FSMContext):
     if query.from_user.id != ADMIN_ID:
         await query.answer("❌ У вас нет доступа!", show_alert=True)
         return
+    await query.answer()
     await state.set_state(AdminAuthStates.waiting_for_password)
     cancel_keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="❌ Отмена", callback_data="pwd_cancel")],
@@ -188,12 +183,12 @@ async def admin_auth(query: CallbackQuery, state: FSMContext):
         pwd_prompt_message_id=query.message.message_id,
         pwd_prompt_chat_id=query.message.chat.id
     )
-    await query.answer()
 
 @router.callback_query(F.data == "pwd_cancel", AdminAuthStates.waiting_for_password)
 async def cancel_password_input(query: CallbackQuery, state: FSMContext):
     if query.from_user.id != ADMIN_ID:
         return
+    await query.answer()
     await state.clear()
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="👑 Админ панель", callback_data="admin_auth")],
@@ -202,7 +197,6 @@ async def cancel_password_input(query: CallbackQuery, state: FSMContext):
         [InlineKeyboardButton(text="🕵️ Я только зашёл, что делать?", callback_data="show_instructions")],
     ])
     await query.message.edit_text("👋 Главное меню\n\nВыбери действие:", reply_markup=keyboard)
-    await query.answer()
 
 @router.message(AdminAuthStates.waiting_for_password)
 async def handle_password_input(message: Message, state: FSMContext):
@@ -251,6 +245,7 @@ async def handle_password_input(message: Message, state: FSMContext):
 
 @router.callback_query(F.data == "show_instructions")
 async def show_instructions(query: CallbackQuery):
+    await query.answer()
     instruction_text = (
         "👋 Добро пожаловать в бот для домашних заданий!\n"
         "Здесь ты всегда найдёшь актуальные задания, расписание и решения — всё в одном месте. Давай разберёмся, как всё работает!\n\n"
@@ -274,12 +269,14 @@ async def show_instructions(query: CallbackQuery):
         [InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_menu")],
     ])
     await safe_edit_or_answer(query.message, instruction_text, reply_markup=keyboard, parse_mode="HTML")
-    await query.answer()
 
 @router.callback_query(F.data == "back_to_menu")
 async def back_to_menu(query: CallbackQuery, state: FSMContext):
-    await clear_all_extra_messages(query, state, exclude_id=query.message.message_id)
+    await query.answer()
+    # Очистка и сброс состояния параллельно
+    clear_task = asyncio.create_task(clear_all_extra_messages(query, state, exclude_id=query.message.message_id))
     await state.clear()
+    await clear_task
     
     if query.from_user.id == ADMIN_ID:
         keyboard = InlineKeyboardMarkup(inline_keyboard=[

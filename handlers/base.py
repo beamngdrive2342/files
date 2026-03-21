@@ -7,7 +7,7 @@ from aiogram.fsm.context import FSMContext
 
 from config import ADMIN_ID, ADMIN_PASSWORD
 from states import AdminAuthStates
-from utils import db, db_call, safe_edit_or_answer, clear_last_homework_photos, clear_last_solution_messages
+from utils import db, db_call, safe_edit_or_answer, clear_all_extra_messages
 
 logger = logging.getLogger("homework_handlers")
 router = Router()
@@ -278,8 +278,7 @@ async def show_instructions(query: CallbackQuery):
 
 @router.callback_query(F.data == "back_to_menu")
 async def back_to_menu(query: CallbackQuery, state: FSMContext):
-    await clear_last_solution_messages(query, state, exclude_id=query.message.message_id)
-    await clear_last_homework_photos(query, state, exclude_id=query.message.message_id)
+    await clear_all_extra_messages(query, state, exclude_id=query.message.message_id)
     await state.clear()
     
     if query.from_user.id == ADMIN_ID:

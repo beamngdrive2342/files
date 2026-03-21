@@ -7,8 +7,7 @@ import asyncio
 import logging
 from aiogram import Dispatcher, Bot
 from aiogram.types import BotCommand
-from config import BOT_TOKEN, DEBUG_MODE, ADMIN_PASSWORD, PROXY_URL
-from aiogram.client.session.aiohttp import AiohttpSession
+from config import BOT_TOKEN, DEBUG_MODE, ADMIN_PASSWORD
 from handlers import base_router, admin_router, student_router, solutions_router
 
 # ==================== КОНФИГУРАЦИЯ ЛОГИРОВАНИЯ ====================
@@ -62,15 +61,7 @@ async def main():
         logger.warning("   Измените ADMIN_PASSWORD в .env на более надежный!")
 
     # Инициализация бота и диспетчера
-    if PROXY_URL:
-        # Если задан прокси, создаем сессию с его использованием
-        session = AiohttpSession(proxy=PROXY_URL)
-        bot = Bot(token=bot_token, session=session)
-        logger.info(f"🌐 Бот запущен через прокси: {PROXY_URL.split('@')[-1]}")
-    else:
-        # Обычный запуск без прокси
-        bot = Bot(token=bot_token)
-    
+    bot = Bot(token=bot_token)
     dp = Dispatcher()
 
     # Подключаем AlbumMiddleware

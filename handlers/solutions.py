@@ -54,6 +54,7 @@ async def get_solution_files(subject_key: str, task_number: str) -> tuple[bool, 
 
 @router.callback_query(F.data == "find_solution_algebra")
 async def find_solution_algebra(query: CallbackQuery, state: FSMContext):
+    await query.answer()
     await clear_last_solution_messages(query, state)
     await state.set_state(SolutionSearchStates.waiting_for_number)
     prompt_message = await query.message.answer(
@@ -68,10 +69,10 @@ async def find_solution_algebra(query: CallbackQuery, state: FSMContext):
         solution_cancel_message_id=None,
         solution_user_task_message_id=None
     )
-    await query.answer()
 
 @router.callback_query(F.data == "find_solution_geometry")
 async def find_solution_geometry(query: CallbackQuery, state: FSMContext):
+    await query.answer()
     await clear_last_solution_messages(query, state)
     await state.set_state(SolutionSearchStates.waiting_for_number)
     prompt_message = await query.message.answer(
@@ -86,7 +87,6 @@ async def find_solution_geometry(query: CallbackQuery, state: FSMContext):
         solution_cancel_message_id=None,
         solution_user_task_message_id=None
     )
-    await query.answer()
 
 @router.callback_query(F.data == "cancel_solution_search", SolutionSearchStates.waiting_for_number)
 async def cancel_solution_search(query: CallbackQuery, state: FSMContext):

@@ -3,7 +3,7 @@ from aiogram import Router, F
 from aiogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 
-from utils import db, db_call, safe_edit_or_answer, clear_last_homework_photos, clear_last_solution_messages
+from utils import db, db_call, safe_edit_or_answer, clear_last_homework_photos, clear_last_solution_messages, clear_all_extra_messages
 from states import FeedbackStates
 from keyboards import create_month_calendar_keyboard, create_schedule_subject_buttons, get_weekday_from_date, format_date_with_weekday
 from config import ADMIN_ID
@@ -13,8 +13,7 @@ router = Router()
 @router.callback_query(F.data == "student_view")
 async def student_view(query: CallbackQuery, state: FSMContext):
     await state.update_data(schedule_back_callback=None)
-    await clear_last_solution_messages(query, state, exclude_id=query.message.message_id)
-    await clear_last_homework_photos(query, state, exclude_id=query.message.message_id)
+    await clear_all_extra_messages(query, state, exclude_id=query.message.message_id)
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📅 На сегодня", callback_data="view_today")],
         [InlineKeyboardButton(text="📅 На завтра", callback_data="view_tomorrow")],
@@ -52,8 +51,7 @@ async def display_homework_for_date(query: CallbackQuery, state: FSMContext, dat
     if weekday is not None and weekday >= 5:
         await query.answer("😴 В этот день уроков нет!", show_alert=True)
         return
-    await clear_last_solution_messages(query, state, exclude_id=query.message.message_id)
-    await clear_last_homework_photos(query, state, exclude_id=query.message.message_id)
+    await clear_all_extra_messages(query, state, exclude_id=query.message.message_id)
     homework_dict = await db_call(db.get_homework_by_date, date)
     formatted_date = format_date_with_weekday(date, mark_today=True)
     await state.update_data(current_view_date=date)

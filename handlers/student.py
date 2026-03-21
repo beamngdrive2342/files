@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timedelta
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineKeyboardButton
@@ -13,8 +14,9 @@ router = Router()
 @router.callback_query(F.data == "student_view")
 async def student_view(query: CallbackQuery, state: FSMContext):
     await query.answer()
-    await state.update_data(schedule_back_callback=None)
-    await clear_all_extra_messages(query, state, exclude_id=query.message.message_id)
+    # Запускаем очистку и обновление стейта параллельно
+    asyncio.create_task(state.update_data(schedule_back_callback=None))
+    asyncio.create_task(clear_all_extra_messages(query, state, exclude_id=query.message.message_id))
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📅 На сегодня", callback_data="view_today")],
         [InlineKeyboardButton(text="📅 На завтра", callback_data="view_tomorrow")],
@@ -22,15 +24,14 @@ async def student_view(query: CallbackQuery, state: FSMContext):
         [InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_menu")],
     ])
     await safe_edit_or_answer(query.message, "📚 Просмотр домашних заданий для 10А класса\n\nВыберите действие:", reply_markup=keyboard)
-    await query.answer()
 
 @router.callback_query(F.data == "view_select_date")
 async def view_select_date(query: CallbackQuery, state: FSMContext):
-    await state.update_data(schedule_back_callback="view_select_date")
+    await query.answer()
+    asyncio.create_task(state.update_data(schedule_back_callback="view_select_date"))
     today = datetime.now()
     keyboard = create_month_calendar_keyboard(today.year, today.month, "student_view")
     await query.message.edit_text("📅 Выберите дату в календаре:", reply_markup=keyboard)
-    await query.answer()
 
 @router.callback_query(F.data.startswith("view_calendar_"))
 async def view_calendar_month(query: CallbackQuery, state: FSMContext):
@@ -53,10 +54,15 @@ async def display_homework_for_date(query: CallbackQuery, state: FSMContext, dat
         await query.answer("😴 В этот день уроков нет!", show_alert=True)
         return
     await query.answer()
-    await clear_all_extra_messages(query, state, exclude_id=query.message.message_id)
-    homework_dict = await db_call(db.get_homework_by_date, date)
+    # Запускаем очистку и получение данных из БД одновременно
+    clear_task = asyncio.create_task(clear_all_extra_messages(query, state, exclude_id=query.message.message_id))
+    hw_task = asyncio.create_task(db_call(db.get_homework_by_date, date))
+    
     formatted_date = format_date_with_weekday(date, mark_today=True)
-    await state.update_data(current_view_date=date)
+    asyncio.create_task(state.update_data(current_view_date=date))
+    
+    homework_dict = await hw_task
+    await clear_task
     if date_label in ("Сегодня", "Завтра"):
         title = f"📚 Расписание на {date_label.lower()} ({formatted_date})"
     else:
@@ -88,13 +94,21 @@ async def view_subject_from_schedule(query: CallbackQuery, state: FSMContext):
     payload = query.data.replace("stview_", "", 1)
     date = payload[:10]
     subject = payload[11:]
-    await clear_last_solution_messages(query, state)
-    await clear_last_homework_photos(query, state)
-    homework = await db_call(db.get_homework, date, subject)
-    if not homework:
-        return await query.answer(f"📭 По предмету {subject} задание не задано", show_alert=True)
     await query.answer()
+    # Запускаем три задачи параллельно: зачистку двух типов сообщений и запрос в БД
+    s_clear = asyncio.create_task(clear_last_solution_messages(query, state))
+    p_clear = asyncio.create_task(clear_last_homework_photos(query, state))
+    hw_task = asyncio.create_task(db_call(db.get_homework, date, subject))
+    
+    homework = await hw_task
+    if not homework:
+        await s_clear
+        await p_clear
+        return await query.message.answer(f"📭 По предмету {subject} задание не задано", show_alert=True)
+    
     text, photos, is_textbook = homework
+    await s_clear
+    await p_clear
     buttons = []
     if is_textbook:
         if subject == "Алгебра": buttons.append([InlineKeyboardButton(text="🔎 Найти решение", callback_data="find_solution_algebra")])
@@ -138,19 +152,26 @@ async def view_subject_from_schedule(query: CallbackQuery, state: FSMContext):
         await safe_edit_or_answer(query.message, f"📚 {subject}\n📅 {format_date_with_weekday(date, mark_today=True)}\n\n📝 {text}", reply_markup=keyboard)
 
     await state.update_data(last_homework_message_ids=photo_message_ids)
-    await query.answer()
 
 @router.callback_query(F.data.startswith("view_subject_"))
 async def view_homework(query: CallbackQuery, state: FSMContext):
     data_parts = query.data.replace("view_subject_", "").rsplit("_", 1)
     date, subject = data_parts[0], data_parts[1]
-    await clear_last_solution_messages(query, state)
-    await clear_last_homework_photos(query, state)
-    homework = await db_call(db.get_homework, date, subject)
-    if not homework:
-        return await query.answer("❌ ДЗ не найдено", show_alert=True)
     await query.answer()
+    # Параллельная зачистка и БД
+    s_clear = asyncio.create_task(clear_last_solution_messages(query, state))
+    p_clear = asyncio.create_task(clear_last_homework_photos(query, state))
+    hw_task = asyncio.create_task(db_call(db.get_homework, date, subject))
+    
+    homework = await hw_task
+    if not homework:
+        await s_clear
+        await p_clear
+        return await query.message.answer("❌ ДЗ не найдено", show_alert=True)
+    
     text, photos, is_textbook = homework
+    await s_clear
+    await p_clear
     buttons = []
     if is_textbook:
         if subject == "Алгебра": buttons.append([InlineKeyboardButton(text="🔎 Найти решение", callback_data="find_solution_algebra")])
@@ -194,7 +215,6 @@ async def view_homework(query: CallbackQuery, state: FSMContext):
         await safe_edit_or_answer(query.message, f"📚 {subject}\n📅 {format_date_with_weekday(date, mark_today=True)}\n\n📝 {text}", reply_markup=keyboard)
 
     await state.update_data(last_homework_message_ids=photo_message_ids)
-    await query.answer()
 
 @router.callback_query(F.data == "show_feedback")
 async def show_feedback(query: CallbackQuery, state: FSMContext):

@@ -27,8 +27,6 @@ class Database:
         self._persistent_conn: Optional[sqlite3.Connection] = None
         self._homework_by_date_cache: Dict[str, Tuple[float, Dict[str, Tuple[str, List[str], bool]]]] = {}
         self._homework_by_date_ttl_sec = 300
-        # Кэш одобренных пользователей: {user_id: is_approved}
-        self._approved_users_cache: Dict[int, bool] = {}
         self.init_db()
 
     @staticmethod
@@ -473,6 +471,15 @@ class Database:
     def register_user(self, user_id: int, username: str = None, first_name: str = None, is_approved: int = 1) -> bool:
         """
         Регистрация пользователя.
+        
+        Args:
+            user_id: Telegram user ID
+            username: Username пользователя
+            first_name: Имя пользователя
+            is_approved: 1 если одобрен, 0 если ждет одобрения
+            
+        Returns:
+            True если успешно
         """
         try:
             conn = self._connect()
@@ -484,9 +491,6 @@ class Database:
             """, (user_id, username, first_name, is_approved))
 
             conn.commit()
-            # Обновляем кэш
-            with self._cache_lock:
-                self._approved_users_cache[user_id] = bool(is_approved)
             return True
 
         except Exception as e:
@@ -495,22 +499,16 @@ class Database:
 
     def is_user_approved(self, user_id: int) -> bool:
         """
-        Проверка, одобрен ли пользователь (с кэшем).
+        Проверка, одобрен ли пользователь.
         """
-        # Сначала проверяем кэш
-        with self._cache_lock:
-            cached = self._approved_users_cache.get(user_id)
-            if cached is not None:
-                return cached
         try:
             conn = self._connect()
             cursor = conn.cursor()
             cursor.execute("SELECT is_approved FROM users WHERE user_id = ?", (user_id,))
             result = cursor.fetchone()
-            approved = bool(result[0]) if result else False
-            with self._cache_lock:
-                self._approved_users_cache[user_id] = approved
-            return approved
+            if result:
+                return bool(result[0])
+            return False
         except Exception as e:
             print(f"❌ Ошибка при проверке одобрения пользователя: {e}")
             return False
@@ -525,9 +523,6 @@ class Database:
             cursor.execute("UPDATE users SET is_approved = ? WHERE user_id = ?", (is_approved, user_id))
             updated = cursor.rowcount > 0
             conn.commit()
-            if updated:
-                with self._cache_lock:
-                    self._approved_users_cache[user_id] = bool(is_approved)
             return updated
         except Exception as e:
             print(f"❌ Ошибка при обновлении статуса одобрения: {e}")
@@ -535,7 +530,7 @@ class Database:
 
     def delete_user(self, user_id: int) -> bool:
         """
-        Удаление пользователя.
+        Удаление пользователя (например, при отказе заявки).
         """
         try:
             conn = self._connect()
@@ -543,9 +538,6 @@ class Database:
             cursor.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
             deleted = cursor.rowcount > 0
             conn.commit()
-            if deleted:
-                with self._cache_lock:
-                    self._approved_users_cache.pop(user_id, None)
             return deleted
         except Exception as e:
             print(f"❌ Ошибка при удалении пользователя: {e}")

@@ -228,23 +228,3 @@ async def process_feedback(message: Message, state: FSMContext):
         feedback_count = await db_call(db.get_feedback_count)
         await message.bot.send_message(ADMIN_ID, f"💌 Новое пожелание от ученика!\nВсего непрочитанных: {feedback_count}\n\nОткрой → Админ панель → Пожелания учеников")
     except Exception: pass
-        [InlineKeyboardButton(text="💌 Пожелания и идеи", callback_data="show_feedback")],
-        [InlineKeyboardButton(text="🕵️ Я только зашёл, что делать?", callback_data="show_instructions")],
-    ]
-    if query.from_user.id == ADMIN_ID:
-        kb_buttons.insert(0, [InlineKeyboardButton(text="👑 Админ панель", callback_data="admin_auth")])
-    await safe_edit_or_answer(query.message, "👋 Главное меню\n\nВыбери действие:", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_buttons))
-
-@router.message(FeedbackStates.waiting_for_feedback)
-async def process_feedback(message: Message, state: FSMContext):
-    feedback_text = (message.text or "").strip()
-    if not feedback_text:
-        await message.answer("⚠️ Пожалуйста, напиши текстовое сообщение.")
-        return
-    await state.clear()
-    await db_call(db.add_feedback, message.from_user.id, message.from_user.username or "", message.from_user.first_name or "", message.from_user.last_name or "", feedback_text)
-    await message.answer("✅ Спасибо! Твоё пожелание отправлено.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ В главное меню", callback_data="back_to_menu")]]))
-    try:
-        feedback_count = await db_call(db.get_feedback_count)
-        await message.bot.send_message(ADMIN_ID, f"💌 Новое пожелание от ученика!\nВсего непрочитанных: {feedback_count}\n\nОткрой → Админ панель → Пожелания учеников")
-    except Exception: pass

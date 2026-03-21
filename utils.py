@@ -102,6 +102,44 @@ async def clear_last_solution_messages(query: CallbackQuery, state: FSMContext, 
         solution_user_task_message_id=None
     )
 
+async def clear_all_extra_messages(query: CallbackQuery, state: FSMContext, exclude_id: int = None):
+    """Объединённая очистка — один вызов state.get_data() вместо двух."""
+    data = await state.get_data()
+    all_ids_to_delete = []
+
+    # Homework photos
+    hw_ids = data.get("last_homework_message_ids", []) or data.get("last_homework_photo_ids", [])
+    if exclude_id:
+        hw_ids = [mid for mid in hw_ids if mid != exclude_id]
+    all_ids_to_delete.extend(hw_ids)
+
+    # Solution messages
+    sol_ids = list(data.get("last_solution_message_ids", []))
+    for key in ("solution_prompt_message_id", "solution_cancel_message_id", "solution_user_task_message_id"):
+        mid = data.get(key)
+        if mid:
+            sol_ids.append(mid)
+    if exclude_id:
+        sol_ids = [mid for mid in sol_ids if mid != exclude_id]
+    all_ids_to_delete.extend(sol_ids)
+
+    if all_ids_to_delete:
+        asyncio.create_task(delete_messages_batch(
+            bot=query.bot,
+            chat_id=query.message.chat.id,
+            message_ids=all_ids_to_delete,
+            error_prefix="Не удалось удалить сообщение"
+        ))
+
+    await state.update_data(
+        last_homework_message_ids=[],
+        last_homework_photo_ids=[],
+        last_solution_message_ids=[],
+        solution_prompt_message_id=None,
+        solution_cancel_message_id=None,
+        solution_user_task_message_id=None
+    )
+
 async def send_notifications_to_users(bot: Bot, date: str, subject: str):
     from keyboards import format_date_with_weekday
     users = await db_call(db.get_all_users)

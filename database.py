@@ -23,8 +23,10 @@ class Database:
         self.db_path = db_path
         self._last_purge_date: Optional[date] = None
         self._cache_lock = Lock()
+        self._conn_lock = Lock()
+        self._persistent_conn: Optional[sqlite3.Connection] = None
         self._homework_by_date_cache: Dict[str, Tuple[float, Dict[str, Tuple[str, List[str], bool]]]] = {}
-        self._homework_by_date_ttl_sec = 45
+        self._homework_by_date_ttl_sec = 300
         self.init_db()
 
     @staticmethod
@@ -65,10 +67,16 @@ class Database:
             )
 
     def _connect(self) -> sqlite3.Connection:
-        """Создание соединения с безопасным таймаутом блокировок."""
-        conn = sqlite3.connect(self.db_path, timeout=10)
-        conn.execute("PRAGMA busy_timeout = 5000")
-        return conn
+        """Возвращает переиспользуемое соединение (thread-safe через Lock)."""
+        with self._conn_lock:
+            if self._persistent_conn is None:
+                conn = sqlite3.connect(self.db_path, timeout=10, check_same_thread=False)
+                conn.execute("PRAGMA busy_timeout = 5000")
+                conn.execute("PRAGMA journal_mode = WAL")
+                conn.execute("PRAGMA synchronous = NORMAL")
+                conn.execute("PRAGMA cache_size = -8000")  # 8MB cache
+                self._persistent_conn = conn
+            return self._persistent_conn
 
     def init_db(self):
         """Создание таблицы если её нет"""
@@ -132,11 +140,8 @@ class Database:
 
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_homework_date ON homework(date)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_homework_subject ON homework(subject)")
-        cursor.execute("PRAGMA journal_mode = WAL")
-        cursor.execute("PRAGMA synchronous = NORMAL")
 
         conn.commit()
-        conn.close()
         self._maybe_purge_old_homework(keep_past_days=5)
 
     def _maybe_purge_old_homework(self, keep_past_days: int = 5) -> int:
@@ -177,7 +182,6 @@ class Database:
             """, (date, subject, text, photo_json, 1 if is_textbook else 0))
 
             conn.commit()
-            conn.close()
             self._invalidate_homework_cache(date)
             self._maybe_purge_old_homework(keep_past_days=5)
             return True
@@ -205,10 +209,10 @@ class Database:
             if not homework:
                 return False
 
-            text, photos, _ = homework
+            hw_text, photos, _ = homework
             photos.append(photo_id)
 
-            return self.update_homework(date, subject, text, photos)
+            return self.update_homework(date, subject, hw_text, photos)
 
         except Exception as e:
             print(f"❌ Ошибка при добавлении фото: {e}")
@@ -231,8 +235,8 @@ class Database:
             if not homework:
                 return False
 
-            text, photos, _ = homework
-            combined_text = f"{text}\n\n{new_text}"
+            hw_text, photos, _ = homework
+            combined_text = f"{hw_text}\n\n{new_text}"
 
             return self.update_homework(date, subject, combined_text, photos)
 
@@ -257,24 +261,14 @@ class Database:
                 cached_hw = cached_by_date.get(subject)
                 if not cached_hw:
                     return None
-                text, photos, is_tb = cached_hw
-                return text, list(photos), is_tb
+                hw_text, photos, is_tb = cached_hw
+                return hw_text, list(photos), is_tb
 
-            conn = self._connect()
-            cursor = conn.cursor()
-
-            cursor.execute("""
-                SELECT text, photo_ids, is_textbook FROM homework 
-                WHERE date = ? AND subject = ?
-            """, (date, subject))
-
-            result = cursor.fetchone()
-            conn.close()
-
-            if result:
-                text, photo_ids, is_tb = result
-                photos = json.loads(photo_ids) if photo_ids else []
-                return text, photos, bool(is_tb)
+            # Если кэша нет для этой даты — загрузим всю дату целиком (заполнит кэш)
+            all_hw = self.get_homework_by_date(date)
+            if subject in all_hw:
+                hw_text, photos, is_tb = all_hw[subject]
+                return hw_text, list(photos), is_tb
             return None
 
         except Exception as e:
@@ -306,12 +300,11 @@ class Database:
             """, (date,))
 
             results = cursor.fetchall()
-            conn.close()
 
             homework_dict = {}
-            for subject, text, photo_ids, is_tb in results:
+            for subject, hw_text, photo_ids, is_tb in results:
                 photos = json.loads(photo_ids) if photo_ids else []
-                homework_dict[subject] = (text, photos, bool(is_tb))
+                homework_dict[subject] = (hw_text, photos, bool(is_tb))
 
             self._set_cached_homework_by_date(date, homework_dict)
             return homework_dict
@@ -341,12 +334,11 @@ class Database:
             """, (subject,))
 
             results = cursor.fetchall()
-            conn.close()
 
             homework_dict = {}
-            for date, text, photo_ids in results:
+            for hw_date, hw_text, photo_ids in results:
                 photos = json.loads(photo_ids) if photo_ids else []
-                homework_dict[date] = (text, photos)
+                homework_dict[hw_date] = (hw_text, photos)
 
             return homework_dict
 
@@ -389,7 +381,6 @@ class Database:
 
             updated = cursor.rowcount > 0
             conn.commit()
-            conn.close()
             if updated:
                 self._invalidate_homework_cache(date)
             return updated
@@ -423,7 +414,6 @@ class Database:
 
             deleted = cursor.rowcount > 0
             conn.commit()
-            conn.close()
             if deleted:
                 self._invalidate_homework_cache(date)
             return deleted
@@ -449,12 +439,11 @@ class Database:
             """)
 
             results = cursor.fetchall()
-            conn.close()
 
             homework_list = []
-            for date, subject, text, photo_ids, is_tb in results:
+            for hw_date, subject, hw_text, photo_ids, is_tb in results:
                 photos = json.loads(photo_ids) if photo_ids else []
-                homework_list.append((date, subject, text, photos, bool(is_tb)))
+                homework_list.append((hw_date, subject, hw_text, photos, bool(is_tb)))
 
             return homework_list
 
@@ -464,29 +453,17 @@ class Database:
 
     def homework_exists(self, date: str, subject: str) -> bool:
         """
-        Проверка существования задания
-        
-        Args:
-            date: Дата
-            subject: Предмет
-            
-        Returns:
-            True если существует
+        Проверка существования задания.
+        Использует кэш get_homework_by_date для быстрой проверки.
         """
         try:
-            conn = self._connect()
-            cursor = conn.cursor()
-
-            cursor.execute(
-                "SELECT 1 FROM homework WHERE date = ? AND subject = ?",
-                (date, subject)
-            )
-
-            result = cursor.fetchone()
-            conn.close()
-
-            return result is not None
-
+            # Сначала проверяем кэш (мгновенно)
+            cached = self._get_cached_homework_by_date(date)
+            if cached is not None:
+                return subject in cached
+            # Если кэша нет для этой даты — загрузим всю дату (заполнит кэш)
+            all_hw = self.get_homework_by_date(date)
+            return subject in all_hw
         except Exception as e:
             print(f"❌ Ошибка при проверке: {e}")
             return False
@@ -514,7 +491,6 @@ class Database:
             """, (user_id, username, first_name, is_approved))
 
             conn.commit()
-            conn.close()
             return True
 
         except Exception as e:
@@ -530,7 +506,6 @@ class Database:
             cursor = conn.cursor()
             cursor.execute("SELECT is_approved FROM users WHERE user_id = ?", (user_id,))
             result = cursor.fetchone()
-            conn.close()
             if result:
                 return bool(result[0])
             return False
@@ -548,7 +523,6 @@ class Database:
             cursor.execute("UPDATE users SET is_approved = ? WHERE user_id = ?", (is_approved, user_id))
             updated = cursor.rowcount > 0
             conn.commit()
-            conn.close()
             return updated
         except Exception as e:
             print(f"❌ Ошибка при обновлении статуса одобрения: {e}")
@@ -564,7 +538,6 @@ class Database:
             cursor.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
             deleted = cursor.rowcount > 0
             conn.commit()
-            conn.close()
             return deleted
         except Exception as e:
             print(f"❌ Ошибка при удалении пользователя: {e}")
@@ -581,10 +554,9 @@ class Database:
             conn = self._connect()
             cursor = conn.cursor()
 
-            cursor.execute("SELECT user_id FROM users")
+            cursor.execute("SELECT user_id FROM users WHERE is_approved = 1")
 
             results = cursor.fetchall()
-            conn.close()
 
             return [row[0] for row in results]
 
@@ -607,7 +579,6 @@ class Database:
             """)
 
             results = cursor.fetchall()
-            conn.close()
 
             return results
 
@@ -632,7 +603,6 @@ class Database:
             cursor.execute("SELECT 1 FROM users WHERE user_id = ?", (user_id,))
 
             result = cursor.fetchone()
-            conn.close()
 
             return result is not None
 
@@ -671,7 +641,6 @@ class Database:
                 conn.commit()
                 self._invalidate_homework_cache()
 
-            conn.close()
             return len(ids_to_delete)
         except Exception as e:
             print(f"❌ Ошибка при очистке старых ДЗ: {e}")
@@ -692,7 +661,6 @@ class Database:
                 VALUES (?, ?, ?, ?, ?)
             """, (user_id, username, first_name, last_name, text))
             conn.commit()
-            conn.close()
             return True
         except Exception as e:
             print(f"❌ Ошибка при сохранении пожелания: {e}")
@@ -714,7 +682,6 @@ class Database:
                 ORDER BY created_at DESC
             """)
             rows = cursor.fetchall()
-            conn.close()
             return rows
         except Exception as e:
             print(f"❌ Ошибка при получении пожеланий: {e}")
@@ -733,7 +700,6 @@ class Database:
             cursor.execute("DELETE FROM feedback WHERE id = ?", (feedback_id,))
             deleted = cursor.rowcount > 0
             conn.commit()
-            conn.close()
             return deleted
         except Exception as e:
             print(f"❌ Ошибка при удалении пожелания: {e}")
@@ -751,7 +717,6 @@ class Database:
             cursor = conn.cursor()
             cursor.execute("SELECT COUNT(*) FROM feedback")
             row = cursor.fetchone()
-            conn.close()
             return row[0] if row else 0
         except Exception as e:
             print(f"❌ Ошибка при подсчёте пожеланий: {e}")

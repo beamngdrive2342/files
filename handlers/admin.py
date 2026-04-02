@@ -83,8 +83,7 @@ async def render_broadcast_preview(message: Message, state: FSMContext):
         f"Получателей: {len(selected_ids)}\n\n"
         "Текст сообщения:\n\n"
         f"{broadcast_text}\n\n"
-        "Под сообщением будут кнопки:\n"
-        "• Проверить задание\n"
+        "Под сообщением будет кнопка:\n"
         "• Мои ДЗ"
     )
     await safe_edit_or_answer(message, preview_text, reply_markup=build_broadcast_preview_keyboard())

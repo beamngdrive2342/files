@@ -564,6 +564,21 @@ class Database:
             print(f"❌ Ошибка при получении пользователей: {e}")
             return []
 
+    def get_approved_users_for_broadcast(self) -> List[Tuple[int, Optional[str], Optional[str]]]:
+        try:
+            conn = self._connect()
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT user_id, username, first_name
+                FROM users
+                WHERE is_approved = 1
+                ORDER BY COALESCE(first_name, ''), COALESCE(username, ''), user_id
+            """)
+            return cursor.fetchall()
+        except Exception as e:
+            print(f"Broadcast recipients loading error: {e}")
+            return []
+
     def get_users_info(self) -> List[Tuple[int, str, str, str, int]]:
         """
         Получение подробного списка пользователей

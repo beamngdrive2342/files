@@ -64,7 +64,6 @@ def build_broadcast_text_keyboard() -> InlineKeyboardMarkup:
 def build_broadcast_message_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Проверить задание", callback_data="view_select_date")],
             [InlineKeyboardButton(text="📚 Мои ДЗ", callback_data="student_view")],
         ]
     )

@@ -8,6 +8,7 @@ from aiogram.fsm.context import FSMContext
 from config import ADMIN_ID, ADMIN_PASSWORD
 from states import AdminAuthStates
 from utils import db, db_call, safe_edit_or_answer, clear_all_extra_messages
+from keyboards import build_admin_panel_keyboard
 
 logger = logging.getLogger("homework_handlers")
 router = Router()
@@ -225,17 +226,10 @@ async def handle_password_input(message: Message, state: FSMContext):
     if entered == ADMIN_PASSWORD:
         await state.clear()
         feedback_count = await db_call(db.get_feedback_count)
-        fb_label = f"💌 Пожелания учеников" + (f" ({feedback_count}) 🔴" if feedback_count > 0 else "")
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="➕ Добавить ДЗ", callback_data="add_hw")],
-            [InlineKeyboardButton(text="✏️ Редактировать", callback_data="edit_hw")],
-            [InlineKeyboardButton(text="🗑 Удалить", callback_data="delete_hw")],
-            [InlineKeyboardButton(text="📋 Все ДЗ", callback_data="view_all_hw")],
-            [InlineKeyboardButton(text=fb_label, callback_data="view_feedbacks")],
-            [InlineKeyboardButton(text="👥 Пользователи", callback_data="view_users")],
-            [InlineKeyboardButton(text="◀️ Выход в меню", callback_data="back_to_menu")],
-        ])
-        await message.answer("✅ Добро пожаловать, администратор!\n\nВыберите действие:", reply_markup=keyboard)
+        await message.answer(
+            "✅ Добро пожаловать, администратор!\n\nВыберите действие:",
+            reply_markup=build_admin_panel_keyboard(feedback_count),
+        )
     else:
         cancel_keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="❌ Отмена", callback_data="pwd_cancel")],

@@ -193,11 +193,19 @@ def create_schedule_subject_buttons(
     for idx, subject in enumerate(subjects, start=1):
         if homework_dict is not None and subject in homework_dict:
 <<<<<<< HEAD
+<<<<<<< HEAD
             label = f"{idx}. вњ… {subject}"
         else:
             label = f"{idx}. {subject}"
         buttons.append([InlineKeyboardButton(text=label, callback_data=f"{prefix}{subject}")])
     buttons.append([InlineKeyboardButton(text="в—ЂпёЏ РќР°Р·Р°Рґ", callback_data=back_callback)])
+=======
+            label = f"{idx}. ✅ {subject}"
+        else:
+            label = f"{idx}. {subject}"
+        buttons.append([InlineKeyboardButton(text=label, callback_data=f"{prefix}{subject}")])
+    buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data=back_callback)])
+>>>>>>> parent of afaf84a (Update keyboards.py)
 =======
             label = f"{idx}. ✅ {subject}"
         else:

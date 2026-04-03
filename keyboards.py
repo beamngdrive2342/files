@@ -10,20 +10,20 @@ BROADCAST_PAGE_SIZE = 8
 
 
 def build_admin_panel_keyboard(feedback_count: int = 0) -> InlineKeyboardMarkup:
-    fb_label = "рџ’Њ РџРѕР¶РµР»Р°РЅРёСЏ СѓС‡РµРЅРёРєРѕРІ"
+    fb_label = "💌 Пожелания учеников"
     if feedback_count > 0:
-        fb_label += f" ({feedback_count}) рџ”ґ"
+        fb_label += f" ({feedback_count}) 🔴"
 
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="вћ• Р”РѕР±Р°РІРёС‚СЊ Р”Р—", callback_data="add_hw")],
-            [InlineKeyboardButton(text="вњЏпёЏ Р РµРґР°РєС‚РёСЂРѕРІР°С‚СЊ", callback_data="edit_hw")],
-            [InlineKeyboardButton(text="рџ—‘ РЈРґР°Р»РёС‚СЊ", callback_data="delete_hw")],
-            [InlineKeyboardButton(text="рџ“‹ Р’СЃРµ Р”Р—", callback_data="view_all_hw")],
-            [InlineKeyboardButton(text="рџ“Ј РћС‚РїСЂР°РІРёС‚СЊ СЂР°СЃСЃС‹Р»РєСѓ", callback_data="broadcast_menu")],
+            [InlineKeyboardButton(text="➕ Добавить ДЗ", callback_data="add_hw")],
+            [InlineKeyboardButton(text="✏️ Редактировать", callback_data="edit_hw")],
+            [InlineKeyboardButton(text="🗑 Удалить", callback_data="delete_hw")],
+            [InlineKeyboardButton(text="📋 Все ДЗ", callback_data="view_all_hw")],
+            [InlineKeyboardButton(text="📣 Отправить рассылку", callback_data="broadcast_menu")],
             [InlineKeyboardButton(text=fb_label, callback_data="view_feedbacks")],
-            [InlineKeyboardButton(text="рџ‘Ґ РџРѕР»СЊР·РѕРІР°С‚РµР»Рё", callback_data="view_users")],
-            [InlineKeyboardButton(text="в—ЂпёЏ Р’С‹С…РѕРґ РІ РјРµРЅСЋ", callback_data="back_to_menu")],
+            [InlineKeyboardButton(text="👥 Пользователи", callback_data="view_users")],
+            [InlineKeyboardButton(text="◀️ Выход в меню", callback_data="back_to_menu")],
         ]
     )
 
@@ -31,13 +31,13 @@ def build_admin_panel_keyboard(feedback_count: int = 0) -> InlineKeyboardMarkup:
 def build_add_content_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="вњЏпёЏ Р”РѕР±Р°РІРёС‚СЊ С‚РµРєСЃС‚", callback_data="add_text")],
+            [InlineKeyboardButton(text="✏️ Добавить текст", callback_data="add_text")],
             [
-                InlineKeyboardButton(text="рџ“ё Р”РѕР±Р°РІРёС‚СЊ С„РѕС‚Рѕ", callback_data="add_photo"),
-                InlineKeyboardButton(text="рџ“‹ Р”РѕР±Р°РІРёС‚СЊ PDF", callback_data="add_pdf"),
+                InlineKeyboardButton(text="📸 Добавить фото", callback_data="add_photo"),
+                InlineKeyboardButton(text="📋 Добавить PDF", callback_data="add_pdf"),
             ],
-            [InlineKeyboardButton(text="вњ… Р—Р°РІРµСЂС€РёС‚СЊ", callback_data="finish_add")],
-            [InlineKeyboardButton(text="в—ЂпёЏ РќР°Р·Р°Рґ", callback_data="add_back_subject")],
+            [InlineKeyboardButton(text="✅ Завершить", callback_data="finish_add")],
+            [InlineKeyboardButton(text="◀️ Назад", callback_data="add_back_subject")],
         ]
     )
 
@@ -45,10 +45,10 @@ def build_add_content_keyboard() -> InlineKeyboardMarkup:
 def build_edit_content_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="вњЏпёЏ РР·РјРµРЅРёС‚СЊ С‚РµРєСЃС‚", callback_data="edit_text")],
-            [InlineKeyboardButton(text="рџ“ё Р”РѕР±Р°РІРёС‚СЊ РµС‰С‘ С„РѕС‚Рѕ", callback_data="edit_photo")],
-            [InlineKeyboardButton(text="вњ… РЎРѕС…СЂР°РЅРёС‚СЊ РёР·РјРµРЅРµРЅРёСЏ", callback_data="finish_edit")],
-            [InlineKeyboardButton(text="в—ЂпёЏ РќР°Р·Р°Рґ", callback_data="edit_back_subject")],
+            [InlineKeyboardButton(text="✏️ Изменить текст", callback_data="edit_text")],
+            [InlineKeyboardButton(text="📸 Добавить ещё фото", callback_data="edit_photo")],
+            [InlineKeyboardButton(text="✅ Сохранить изменения", callback_data="finish_edit")],
+            [InlineKeyboardButton(text="◀️ Назад", callback_data="edit_back_subject")],
         ]
     )
 
@@ -56,7 +56,7 @@ def build_edit_content_keyboard() -> InlineKeyboardMarkup:
 def build_broadcast_text_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="вќЊ РћС‚РјРµРЅР°", callback_data="broadcast_cancel")],
+            [InlineKeyboardButton(text="❌ Отмена", callback_data="broadcast_cancel")],
         ]
     )
 
@@ -64,7 +64,7 @@ def build_broadcast_text_keyboard() -> InlineKeyboardMarkup:
 def build_broadcast_message_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="рџ“љ РњРѕРё Р”Р—", callback_data="student_view")],
+            [InlineKeyboardButton(text="📚 Мои ДЗ", callback_data="student_view")],
         ]
     )
 
@@ -72,13 +72,13 @@ def build_broadcast_message_keyboard() -> InlineKeyboardMarkup:
 def build_broadcast_preview_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="рџ§Є РўРµСЃС‚ СЃРµР±Рµ", callback_data="broadcast_test")],
-            [InlineKeyboardButton(text="вњ… РћС‚РїСЂР°РІРёС‚СЊ СЂР°СЃСЃС‹Р»РєСѓ", callback_data="broadcast_send")],
+            [InlineKeyboardButton(text="🧪 Тест себе", callback_data="broadcast_test")],
+            [InlineKeyboardButton(text="✅ Отправить рассылку", callback_data="broadcast_send")],
             [
-                InlineKeyboardButton(text="рџ‘Ґ РџРѕР»СѓС‡Р°С‚РµР»Рё", callback_data="broadcast_back_recipients"),
-                InlineKeyboardButton(text="вњЏпёЏ РР·РјРµРЅРёС‚СЊ С‚РµРєСЃС‚", callback_data="broadcast_edit_text"),
+                InlineKeyboardButton(text="👥 Получатели", callback_data="broadcast_back_recipients"),
+                InlineKeyboardButton(text="✏️ Изменить текст", callback_data="broadcast_edit_text"),
             ],
-            [InlineKeyboardButton(text="вќЊ РћС‚РјРµРЅР°", callback_data="broadcast_cancel")],
+            [InlineKeyboardButton(text="❌ Отмена", callback_data="broadcast_cancel")],
         ]
     )
 
@@ -98,8 +98,8 @@ def build_broadcast_recipients_keyboard(
     buttons: list[list[InlineKeyboardButton]] = []
     for user in page_users:
         user_id = int(user["user_id"])
-        checked = "вњ…" if user_id in selected_ids else "в‘пёЏ"
-        first_name = (user.get("first_name") or "Р‘РµР· РёРјРµРЅРё").strip()
+        checked = "✅" if user_id in selected_ids else "☑️"
+        first_name = (user.get("first_name") or "Без имени").strip()
         username = f" (@{user['username']})" if user.get("username") else ""
         label = f"{checked} {first_name}{username}"
         buttons.append([InlineKeyboardButton(text=label[:64], callback_data=f"broadcast_toggle_{user_id}")])
@@ -107,20 +107,20 @@ def build_broadcast_recipients_keyboard(
     if total_pages > 1:
         buttons.append(
             [
-                InlineKeyboardButton(text="в—ЂпёЏ", callback_data=f"broadcast_page_{page - 1}"),
+                InlineKeyboardButton(text="◀️", callback_data=f"broadcast_page_{page - 1}"),
                 InlineKeyboardButton(text=f"{page + 1}/{total_pages}", callback_data="noop"),
-                InlineKeyboardButton(text="в–¶пёЏ", callback_data=f"broadcast_page_{page + 1}"),
+                InlineKeyboardButton(text="▶️", callback_data=f"broadcast_page_{page + 1}"),
             ]
         )
 
     buttons.append(
         [
-            InlineKeyboardButton(text="вњ… Р’С‹Р±СЂР°С‚СЊ РІСЃРµС…", callback_data="broadcast_select_all"),
-            InlineKeyboardButton(text="рџ§№ РЎРЅСЏС‚СЊ РІСЃРµС…", callback_data="broadcast_clear_all"),
+            InlineKeyboardButton(text="✅ Выбрать всех", callback_data="broadcast_select_all"),
+            InlineKeyboardButton(text="🧹 Снять всех", callback_data="broadcast_clear_all"),
         ]
     )
-    buttons.append([InlineKeyboardButton(text="вћЎпёЏ РџСЂРѕРґРѕР»Р¶РёС‚СЊ", callback_data="broadcast_preview")])
-    buttons.append([InlineKeyboardButton(text="вќЊ РћС‚РјРµРЅР°", callback_data="broadcast_cancel")])
+    buttons.append([InlineKeyboardButton(text="➡️ Продолжить", callback_data="broadcast_preview")])
+    buttons.append([InlineKeyboardButton(text="❌ Отмена", callback_data="broadcast_cancel")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -136,18 +136,18 @@ def format_date_with_weekday(date_str: str, mark_today: bool = False) -> str:
     try:
         dt = datetime.strptime(date_str, "%d.%m.%Y")
         weekday_names = {
-            "Mon": "РїРѕРЅРµРґРµР»СЊРЅРёРє",
-            "Tue": "РІС‚РѕСЂРЅРёРє",
-            "Wed": "СЃСЂРµРґР°",
-            "Thu": "С‡РµС‚РІРµСЂРі",
-            "Fri": "РїСЏС‚РЅРёС†Р°",
-            "Sat": "СЃСѓР±Р±РѕС‚Р°",
-            "Sun": "РІРѕСЃРєСЂРµСЃРµРЅСЊРµ",
+            "Mon": "понедельник",
+            "Tue": "вторник",
+            "Wed": "среда",
+            "Thu": "четверг",
+            "Fri": "пятница",
+            "Sat": "суббота",
+            "Sun": "воскресенье",
         }
         day_name = weekday_names.get(dt.strftime("%a"), dt.strftime("%A"))
         formatted = f"{date_str} ({day_name})"
         if mark_today and date_str == datetime.now().strftime("%d.%m.%Y"):
-            formatted += " [СЃРµРіРѕРґРЅСЏ]"
+            formatted += " [сегодня]"
         return formatted
     except Exception:
         return date_str
@@ -160,7 +160,7 @@ def create_date_buttons(
     for date in dates:
         label = format_date_with_weekday(date, mark_today=mark_today)
         buttons.append([InlineKeyboardButton(text=label, callback_data=f"{prefix}{date}")])
-    buttons.append([InlineKeyboardButton(text="в—ЂпёЏ РќР°Р·Р°Рґ", callback_data=back_callback)])
+    buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data=back_callback)])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -168,7 +168,7 @@ def create_subject_buttons(prefix: str = "subject_", back_callback: str = "back_
     buttons = []
     for subject in SUBJECTS:
         buttons.append([InlineKeyboardButton(text=subject, callback_data=f"{prefix}{subject}")])
-    buttons.append([InlineKeyboardButton(text="в—ЂпёЏ РќР°Р·Р°Рґ", callback_data=back_callback)])
+    buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data=back_callback)])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -192,11 +192,19 @@ def create_schedule_subject_buttons(
     buttons = []
     for idx, subject in enumerate(subjects, start=1):
         if homework_dict is not None and subject in homework_dict:
+<<<<<<< HEAD
             label = f"{idx}. вњ… {subject}"
         else:
             label = f"{idx}. {subject}"
         buttons.append([InlineKeyboardButton(text=label, callback_data=f"{prefix}{subject}")])
     buttons.append([InlineKeyboardButton(text="в—ЂпёЏ РќР°Р·Р°Рґ", callback_data=back_callback)])
+=======
+            label = f"{idx}. ✅ {subject}"
+        else:
+            label = f"{idx}. {subject}"
+        buttons.append([InlineKeyboardButton(text=label, callback_data=f"{prefix}{subject}")])
+    buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data=back_callback)])
+>>>>>>> parent of afaf84a (Update keyboards.py)
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -208,20 +216,20 @@ def create_month_calendar_keyboard(
     nav_callback_prefix: str = "view_calendar_",
 ) -> InlineKeyboardMarkup:
     month_names = {
-        1: "РЇРЅРІР°СЂСЊ",
-        2: "Р¤РµРІСЂР°Р»СЊ",
-        3: "РњР°СЂС‚",
-        4: "РђРїСЂРµР»СЊ",
-        5: "РњР°Р№",
-        6: "РСЋРЅСЊ",
-        7: "РСЋР»СЊ",
-        8: "РђРІРіСѓСЃС‚",
-        9: "РЎРµРЅС‚СЏР±СЂСЊ",
-        10: "РћРєС‚СЏР±СЂСЊ",
-        11: "РќРѕСЏР±СЂСЊ",
-        12: "Р”РµРєР°Р±СЂСЊ",
+        1: "Январь",
+        2: "Февраль",
+        3: "Март",
+        4: "Апрель",
+        5: "Май",
+        6: "Июнь",
+        7: "Июль",
+        8: "Август",
+        9: "Сентябрь",
+        10: "Октябрь",
+        11: "Ноябрь",
+        12: "Декабрь",
     }
-    weekday_headers = ["РџРЅ", "Р’С‚", "РЎСЂ", "Р§С‚", "РџС‚", "РЎР±", "Р’СЃ"]
+    weekday_headers = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
     today = datetime.now()
 
     cal = calendar.Calendar(firstweekday=0)
@@ -258,9 +266,9 @@ def create_month_calendar_keyboard(
 
     buttons.append(
         [
-            InlineKeyboardButton(text="в—ЂпёЏ", callback_data=f"{nav_callback_prefix}{prev_year}_{prev_month:02d}"),
-            InlineKeyboardButton(text="вћЎпёЏ", callback_data=f"{nav_callback_prefix}{next_year}_{next_month:02d}"),
+            InlineKeyboardButton(text="◀️", callback_data=f"{nav_callback_prefix}{prev_year}_{prev_month:02d}"),
+            InlineKeyboardButton(text="➡️", callback_data=f"{nav_callback_prefix}{next_year}_{next_month:02d}"),
         ]
     )
-    buttons.append([InlineKeyboardButton(text="в—ЂпёЏ РќР°Р·Р°Рґ", callback_data=back_callback)])
+    buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data=back_callback)])
     return InlineKeyboardMarkup(inline_keyboard=buttons)

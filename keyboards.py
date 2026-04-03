@@ -241,9 +241,16 @@ def create_month_calendar_keyboard(
             day_label = f"{day:02d}"
             if day == today.day and month == today.month and year == today.year:
                 label = f"[{day_label}]"
+                row.append(
+                    InlineKeyboardButton(
+                        text=label,
+                        callback_data=f"{date_callback_prefix}{date_str}",
+                        style="success",
+                    )
+                )
             else:
                 label = f" {day_label} "
-            row.append(InlineKeyboardButton(text=label, callback_data=f"{date_callback_prefix}{date_str}"))
+                row.append(InlineKeyboardButton(text=label, callback_data=f"{date_callback_prefix}{date_str}"))
         buttons.append(row)
 
     prev_month, prev_year = (12, year - 1) if month == 1 else (month - 1, year)
